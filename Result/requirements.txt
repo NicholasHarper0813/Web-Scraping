@@ -1,0 +1,4 @@
+1. I would appreciate it if you could send me detailed information about how to change the project rule.
+2. And if you have a plan for building a server, whether to use the web for the login page or Python, please let me know.
+3. Is your purpose to proceed with executing the current python script through the login page?
+4. How do you plan to select the background image to use on the login page?
