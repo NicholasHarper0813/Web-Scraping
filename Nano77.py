@@ -1,19 +1,30 @@
 import pandas as pd
+import math
+import string
+import numpy as np 
+import tkinter as tk
+import customtkinter as ctk
+import logging.config
+import requests
+import datetime
+import logging
+import random
+import sys
+import threading
+import time
+import shutil, getpass, requests, zipfile, os, re#, wget
+import re
+import copy
+
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl import load_workbook
 from bs4 import BeautifulSoup
 from openpyxl.styles import Border, Side
-import math
-import string
-import numpy as np 
-import tkinter as tk
-from tkinter import ttk
-from PIL import Image
-import customtkinter as ctk
 from ttkthemes import ThemedTk
 from tkinter import messagebox
-import logging.config
+from tkinter import ttk
+from PIL import Image
 from concurrent.futures import thread
 from selenium.webdriver.common.keys import Keys
 from seleniumwire import webdriver
@@ -28,24 +39,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import NoSuchElementException
 from selenium_stealth import stealth
 from icecream import ic
-# import argparse
-import requests
 from bs4 import BeautifulSoup as bs
-import datetime
-import logging
-import random
-import sys
-import threading
-import time
-# import traceback
-import shutil, getpass, requests, zipfile, os, re#, wget
-import re
-import copy
 
 STAT_LOGGING_INTERVAL = 60  # Seconds
 THREAD_SHUTDOWN_TIMEOUT = 3  # Seconds
-thread_start_delay = 0
-
+thread_start_delay = 1
 
 def generate_log_filename():
     now = datetime.datetime.now()
@@ -138,7 +136,6 @@ class SimulationThread(threading.Thread):
         self.requested_stop = True
 
     def automate(self, id, url, proxy, emails, run_time):
-        #show_loading()
         # try:
         #     username, password = combo.split(":")
         # except:
@@ -159,8 +156,6 @@ class SimulationThread(threading.Thread):
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument("--mute-audio")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        # options.add_extension('active.crx')
-        # options.add_extension('css.crx')
         # scriptDirectory = pathlib.Path().absolute()
         # directory = ''.join(random.choice(string.ascii_letters + string.digits) for i in range(8))
         # directory = "chrome_"+ directory
@@ -291,7 +286,7 @@ class SimulationThread(threading.Thread):
 
                         try:
                             driver.get(f'{m_url}/{league}/live-{gameid}')
-                            time.sleep(4)
+                            time.sleep(3)
                             early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
                             new_values = early_live_str.split()
                             bet365_early_data_deep_copied = " / ".join(new_values[1:4])
@@ -746,7 +741,7 @@ class SimulationThread(threading.Thread):
                         return indexes
                     total_aux_list = []
                     aux_list = []
-                    print(len(t[0]))
+                    #print(len(t[0]))
                     try:
                         for team_score_index in range(len(t[0])):
                             for j in range(10):
