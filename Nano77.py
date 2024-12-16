@@ -1,30 +1,19 @@
 import pandas as pd
-import math
-import string
-import numpy as np 
-import tkinter as tk
-import customtkinter as ctk
-import logging.config
-import requests
-import datetime
-import logging
-import random
-import sys
-import threading
-import time
-import shutil, getpass, requests, zipfile, os, re#, wget
-import re
-import copy
-
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl import load_workbook
 from bs4 import BeautifulSoup
 from openpyxl.styles import Border, Side
-from ttkthemes import ThemedTk
-from tkinter import messagebox
+import math
+import string
+import numpy as np 
+import tkinter as tk
 from tkinter import ttk
 from PIL import Image
+import customtkinter as ctk
+from ttkthemes import ThemedTk
+from tkinter import messagebox
+import logging.config
 from concurrent.futures import thread
 from selenium.webdriver.common.keys import Keys
 from seleniumwire import webdriver
@@ -39,11 +28,24 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import NoSuchElementException
 from selenium_stealth import stealth
 from icecream import ic
+# import argparse
+import requests
 from bs4 import BeautifulSoup as bs
+import datetime
+import logging
+import random
+import sys
+import threading
+import time
+# import traceback
+import shutil, getpass, requests, zipfile, os, re#, wget
+import re
+import copy
 
 STAT_LOGGING_INTERVAL = 60  # Seconds
 THREAD_SHUTDOWN_TIMEOUT = 3  # Seconds
-thread_start_delay = 1
+thread_start_delay = 0
+
 
 def generate_log_filename():
     now = datetime.datetime.now()
@@ -136,6 +138,7 @@ class SimulationThread(threading.Thread):
         self.requested_stop = True
 
     def automate(self, id, url, proxy, emails, run_time):
+        #show_loading()
         # try:
         #     username, password = combo.split(":")
         # except:
@@ -156,6 +159,8 @@ class SimulationThread(threading.Thread):
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument("--mute-audio")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        # options.add_extension('active.crx')
+        # options.add_extension('css.crx')
         # scriptDirectory = pathlib.Path().absolute()
         # directory = ''.join(random.choice(string.ascii_letters + string.digits) for i in range(8))
         # directory = "chrome_"+ directory
@@ -286,7 +291,7 @@ class SimulationThread(threading.Thread):
 
                         try:
                             driver.get(f'{m_url}/{league}/live-{gameid}')
-                            time.sleep(3)
+                            time.sleep(4)
                             early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
                             new_values = early_live_str.split()
                             bet365_early_data_deep_copied = " / ".join(new_values[1:4])
@@ -659,6 +664,8 @@ class SimulationThread(threading.Thread):
                 PROV_HOY = False
                 PROV_WHP = False
                 PROV_PAV = False
+                PROV_D1R = False
+                PROV_D77 = False
 
                 for team_score_index in range(len(df['Goal Value H'])):
                     if isinstance(df['Goal Value H'][team_score_index],str) and df['Goal Value H'][team_score_index]!="" :
@@ -741,7 +748,7 @@ class SimulationThread(threading.Thread):
                         return indexes
                     total_aux_list = []
                     aux_list = []
-                    #print(len(t[0]))
+                    print(len(t[0]))
                     try:
                         for team_score_index in range(len(t[0])):
                             for j in range(10):
@@ -1225,149 +1232,198 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
                     ################################################################ HDN (Modified) ##########################################################################
-                    def new_task_update_2(home,away):
-                        found = False
+                    def new_task_update_2(home, away):
                         resH = []
+                        resA = []
+                        # Verifica a lista "home"
                         for elem in home:
                             found = False
                             for i in range(len(elem)):
                                 
-                                if i == 4 and elem[i][1] == '0' and elem[i][3] == '0':
-                                    found = True
-                                elif i == 4 and elem[i][1] == '1' and elem[i][3] == '1':
-                                    found = True
-                            if found:
-                                resH.append(True)
-                            else:
-                                resH.append(False)
-                        found = False
-                        resA = []
+                                if i == 4:
+                                    if (elem[i][1] == '0' and elem[i][3] == '0') or (elem[i][1] == '1' and elem[i][3] == '1'):
+                                        found = True
+                            resH.append(found)
+
+                        # Verifica a lista "away"
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
-                                
-                                if i == 4 and elem[i][1] == '0' and elem[i][3] == '0':
-                                    found = True
-                                elif i == 4 and elem[i][1] == '1' and elem[i][3] == '1':
-                                    found = True
-                            if found:
-                                resA.append(True)
-                            else:
-                                resA.append(False)
+                                if i == 4:
+                                    if (elem[i][1] == '0' and elem[i][3] == '0') or (elem[i][1] == '1' and elem[i][3] == '1'):
+                                        found = True
+                            resA.append(found)
 
                         return resH, resA
-                    font
-                    resH, resA = new_task_update_2(home,away)
+                    resH, resA = new_task_update_2(home, away)
 
                     i = -1
+
+                    odds: list = []
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=24, max_col=24):
+                        for cell in row:
+                            if cell.value is not None and cell.value != "" and cell.value != "Early" and isinstance(cell.value, str):
+                                odds.append(cell.value)
+
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=9, max_col=9):
                             for cell in row:
-                                if cell.value is not None and cell.value!="" and cell.value!="AVGA" and isinstance(cell.value,str):
-                                    i+= 1
-                                    if resH[i] == True:
-                                        font = Font(color='#FACA00',name='Arial Narrow', size=11, bold=True, italic=True)
-                                        cell.font = font
-                                        PROV_HDN = True
-                    except:
-                        pass
+                                if cell.value is not None and cell.value != "" and cell.value != "AVGA" and isinstance(cell.value, str):
+                                    i += 1
+                                    if i < len(resH) and resH[i] == True:
+                                        if (float(odds[i].split('/')[0].strip()) >= float(odds[i].split('/')[2].strip())):
+                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                        else:
+                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                    elif i < len(resA) and resA[i] == True:
+                                        if (float(odds[i].split('/')[0].strip()) <= float(odds[i].split('/')[2].strip())):
+                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                        else:
+                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                    elif((i < len(resA) and resA[i] == True) and (i < len(resH) and resH[i] == True)):
+                                        if (float(odds[i].split('/')[0].strip()) >= float(odds[i].split('/')[2].strip())):
+                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                        else:
+                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                    elif i < len(resA) and resA[i] == True:
+                                        if (float(odds[i].split('/')[0].strip()) <= float(odds[i].split('/')[2].strip())):
+                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                                        else:
+                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
+                                            cell.font = font
+                                            PROV_HDN = True
+                    except Exception as e:
+                        print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
+                    
                    ################################################################ DIR (Modified) ##########################################################################
                     def new_task_update_3(home,away):
-                        found = False
                         resH = []
+                        resA = []
+                        # Verifica a lista "home"
                         for elem in home:
                             found = False
                             for i in range(len(elem)):
                                 
-                                if i == (len(elem) - 1) and elem[i][1] == '2' and elem[i][3] == '2':
-                                    found = True
-                                elif i == (len(elem) - 1) and elem[i][1] == '3' and elem[i][3] == '3':
-                                    found = True
-                                elif i == (len(elem) - 1) and (elem[i][1] == '4' or elem[i][3] == '5'):
-                                    found = True
-                            if found:
-                                resH.append(True)
-                            else:
-                                resH.append(False)
-                        found = False
-                        resA = []
+                                if i == 0 and ('W' == elem[i][-1] or 'D' == elem[i][-1] or 'w' == elem[i][-1] or 'd' == elem[i][-1]):
+                                    if (f'{elem[i][1]}-{elem[i][3]}' in ['2-2', '3-3', '2-3', '1-3', '2-4', '0-4', '1-4', '3-4', '1-5', '0-5', '2-5', '3-5']):
+                                        found = True
+                            resH.append(found)  # Adiciona True ou False para cada elemento
+
+                        # Verifica a lista "away"
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
-                                
-                                if i == (len(elem) - 1) and elem[i][1] == '2' and elem[i][3] == '2':
-                                    found = True
-                                elif i == (len(elem) - 1) and elem[i][1] == '3' and elem[i][3] == '3':
-                                    found = True
-                                elif i == (len(elem) - 1) and (elem[i][1] == '4' or elem[i][3] == '5'):
-                                    found = True
-                            if found:
-                                resA.append(True)
-                            else:
-                                resA.append(False)
+                                # Verifica as condições no índice 4
+                                if i == 0 and ('W' == elem[i][-1] or 'D' == elem[i][-1] or 'w' == elem[i][-1] or 'd' == elem[i][-1]):
+                                    if (f'{elem[i][1]}-{elem[i][3]}' in ['2-2', '3-3', '3-1', '3-2', '4-0', '4-1', '4-2', '4-3', '5-0', '5-1', '5-2', '5-3']):
+                                        found = True
+                            resA.append(found)  # Adiciona True ou False para cada elemento
 
                         return resH, resA
-                    font
-                    resH, resA = new_task_update_3(home,away)
+                    resH, resA = new_task_update_3(home, away)
 
-                    i = -1
+                    i = -1  # Inicializa o índice
+
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
+                        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=8, max_col=8):  # Itera na coluna 9
                             for cell in row:
-                                if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
-                                    i+= 1
-                                    if resH[i] == True:
-                                        font = Font(color='#FFFF00',name='Arial Narrow', size=11, bold=True, italic=True)
+                                # Verifica se a célula contém um valor válido
+                                if cell.value is not None and cell.value != "" and cell.value != "AVGH" and isinstance(cell.value, str):
+                                    i += 1
+                                    if i < len(resH) and resH[i] == True:
+                                        font = Font(color='FFFFFF00', name='Arial Narrow', size=11, bold=True, italic=True)
                                         cell.font = font
-                    except:
-                        pass
+                                        PROV_D1R = True
+                                    elif i < len(resA) and resA[i] == True:
+                                        font = Font(color='FFFFFF00', name='Arial Narrow', size=11, bold=True, italic=True)
+                                        cell.font = font
+                                        PROV_D1R = True
+                    except Exception as e:
+                        print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
                     ################################################################ DIR (Modified) ##########################################################################
-                    def new_task_update_4(home,away):
+                    def new_task_update_4(home, away):
                         found = False
-                        resH = []
+                        lis_color = [[], []]  # Lista de cores separada para home e away
+                        resH = []  # Resultado para a lista "home"
+                        resA = []  # Resultado para a lista "away"
+
+                        # Verifica a lista "home"
                         for elem in home:
                             found = False
                             for i in range(len(elem)):
-                                if i == (len(elem) - 1) and elem[i][1] == '2' and elem[i][3] == '2':
+                                if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
                                     found = True
-                                elif i == (len(elem) - 1) and elem[i][1] == '3' and elem[i][3] == '3':
-                                    found = True
-                                if i == 4 and (float(elem[i][1]) + float(elem[i][3]) >=4):
-                                    found = True
-                            if found:
-                                resH.append(True)
-                            else:
-                                resH.append(False)
-                        found = False
-                        resA = []
+                                    if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
+                                        lis_color[0].append('FF0000FF')  # Azul
+                                    elif elem[i][-1].upper() == 'L':
+                                        lis_color[0].append('FFFF0000')  # Vermelho
+                            resH.append(found)
+
+                        # Verifica a lista "away"
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
-                                if i == (len(elem) - 1) and elem[i][1] == '2' and elem[i][3] == '2':
+                                if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
                                     found = True
-                                elif i == (len(elem) - 1) and elem[i][1] == '3' and elem[i][3] == '3':
-                                    found = True
-                                if i == 4 and (float(elem[i][1]) + float(elem[i][3]) >=4):
-                                    found = True
-                            if found:
-                                resA.append(True)
-                            else:
-                                resA.append(False)
+                                    if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
+                                        lis_color[1].append('FF0000FF')  # Azul
+                                    elif elem[i][-1].upper() == 'L':
+                                        lis_color[1].append('FFFF0000')  # Vermelho
+                            resA.append(found)
 
-                        return resH, resA
-                    font
-                    resH, resA = new_task_update_4(home,away)
+                        return resH, resA, lis_color
 
-                    i = -1
+
+                    # Obtém os resultados e as cores
+                    resH, resA, color_d77 = new_task_update_4(home, away)
+
+                    indexH = -1
+                    indexA = -1 
+                    i = -1  # Índice global para as linhas da planilha
+
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=2, max_col=2):
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=3, max_col=3):  # Apenas coluna 3
                             for cell in row:
-                                if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
-                                    i+= 1
-                                    if resH[i] == True:
-                                        cell.border = color111
-                    except:
-                        pass
+                                # Verifica se a célula contém um valor válido
+                                if cell.value is not None and cell.value != "" and cell.value != "League" and isinstance(cell.value, str):
+                                    i += 1
+                                    if i < len(resH) and resH[i] == True:
+                                        indexH += 1  # Incrementa o índice para color_d77[0]
+                                        border_color = Border(
+                                            left=Side(border_style='thick', color=color_d77[0][indexH]),
+                                            right=Side(border_style='thick', color=color_d77[0][indexH]),
+                                            top=Side(border_style='thick', color=color_d77[0][indexH]),
+                                            bottom=Side(border_style='thick', color=color_d77[0][indexH]),
+                                        )
+                                        cell.border = border_color  # Aplica borda
+                                        PROV_D77 = True
+                                    elif i < len(resA) and resA[i] == True:
+                                        indexA += 1  # Incrementa o índice para color_d77[1]
+                                        border_color = Border(
+                                            left=Side(border_style='thick', color=color_d77[1][indexA]),
+                                            right=Side(border_style='thick', color=color_d77[1][indexA]),
+                                            top=Side(border_style='thick', color=color_d77[1][indexA]),
+                                            bottom=Side(border_style='thick', color=color_d77[1][indexA]),
+                                        )
+                                        cell.border = border_color  # Aplica borda
+                                        PROV_D77 = True
+
+                    except Exception as e:
+                        print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
                     ################################################################ DIR (Modified) ##########################################################################
                     def new_task_update_5(home,away):
                         found = False
@@ -2356,212 +2412,7 @@ class SimulationThread(threading.Thread):
                                 except:
                                     pass
 
-                    #LEAGUE
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=5, max_col=5):
-                            for cell in row:
-                                if cell.value is not None and  cell.value != 'Away' and cell.value !='' and isinstance(cell.value,str) and 'VS' in cell.value:
-                                    if (PROV_AH or PROV_SK) & (PROV_DBT or PROV_BK or PROV_D3RD or PROV_D5TH or PROV_LTN1ST):
-                                        cell.border = thick_red_border
-                                        PROV_NK = True
-                    except:
-                        pass
-
-                    #IMC
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'Goal Value H' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (float(AVGH[i]) + float(AVGA[i])) >= 2.2 and (PROV_SK or PROV_AH or PROV_NX or PROV_D3RD or PROV_D5TH) and (PROV_LN7 or PROV_3NR):
-                                        font = Font(color='FF0066',name='Arial Narrow', size=11, bold=True)
-                                        cell.font = font  
-                                        PROV_IMC = True
-                    except:
-                        pass
-
-                    #NN = ...
-                    #i = -1
-                    #try:
-                    #    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=25, max_col=25):
-                    #       for cell in row:
-                    #           if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
-                    #                i += 1
-                    #                if PROV_SCA and (PROV_ECC or PROV_GDSZ or PROV_PTN):
-                    #                    font = Font(color='#00FFFF',name='Arial Narrow', size=11, bold=True, italic=True)
-                    #                    cell.font = font  
-                    #                    PROV_NED = True
-                    #except:
-                    #    pass         
-
-                    #NED = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=3, max_col=3):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'League' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if PROV_ECC and PROV_F09 and PROV_SK:
-                                        cell.border = thick_red_border
-                                        PROV_NED = True
-                    except:
-                        pass     
-                    
-                    #NFD = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=21, max_col=21):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'Prob.Away' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if PROV_F09 and PROV_SK:
-                                        cell.border = thick_red_border
-                                        PROV_NFD = True
-                    except:
-                        pass    
-
-                    #FTF = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=22, max_col=22):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'SD Home' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (PROV_F09 or PROV_DBT) and PROV_AH and PROV_LN7:
-                                        cell.border = thick_Pink_border
-                                        PROV_FTF = True
-                    except:
-                        pass  
-
-                    #TIG = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=9, max_col=9):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'AVGA' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if PROV_ECC and PROV_AH and (PROV_3NR or PROV_LN7 or (float(CVA[i]) + float(CVH[i])) <= 0.15):
-                                        cell.border = thick_black_border
-                                        PROV_TIG = True
-                    except:
-                        pass             
-
-                    #EAG = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=6, max_col=6):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'GH' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (PROV_3DD or PROV_DP) and (PROV_AH or PROV_SK) and (PROV_TIG or PROV_DP) and PROV_LN7:
-                                        cell.border = thick_Blue_border
-                                        PROV_EAG = True
-                    except:
-                        pass        
-
-                    #CCH = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=2, max_col=2):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'Date' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if PROV_ECC and PROV_F09 and (PROV_AH or PROV_TIG):
-                                        font = Font(color='#FFFFFF',name='Arial Narrow', size=11, bold=True, italic=True)
-                                        cell.font = font  
-                    except:
-                        pass    
-
-                    #CYC = ....
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=5, max_col=5):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'Away' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (PROV_IMC or PROV_TIG or PROV_EAG):
-                                        font = Font(color='#B7DEE8',name='Arial Narrow', size=11)
-                                        cell.font = font  
-                                        PROV_CYC = True
-                    except:
-                        pass    
-
-                    #OWO...
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=10, max_col=10):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'AGH' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (PROV_ECC or PROV_NK) and PROV_F09 and PROV_FTF and (PROV_3NR or PROV_LN7):
-                                        cell.border = thick_red_border
-                                        PROV_OWO = True
-                    except:
-                        pass
-
-                    #BFM...
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=11, max_col=11):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'AGA' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (PROV_ECC or PROV_AH or PROV_BK) and (PROV_HDN or PROV_3NR):
-                                        cell.border = thick_black_border
-                                        PROV_BFM = True
-                    except:
-                        pass      
-
-                    #OHO...
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=4):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'Home' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if PROV_NX and PROV_AH and (PROV_SK or PROV_TIG) and (float(GVA[i]) + float(GVH[i]) >= 1.89):
-                                        font = Font(color='#A6A6A6',name='Arial Narrow', size=11)
-                                        cell.font = font 
-                    except:
-                        pass  
-                
-                    #OAO...
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=16, max_col=16):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'Goal Cost Home' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if ((PROV_3DD or PROV_AH) and (float(GVA[i]) + float(GVH[i]) >= 2.1)) or (PROV_D3RD or PROV_D5TH or (float(CVA[i]) + float(CVH[i])) <= 0.15) or (PROV_3NR or PROV_BK or PROV_HDN):
-                                        cell.border = thick_Gold_border
-                                        PROV_BFM = True 
-                    except:
-                        pass  
-
-                    #VNM...
-                    #i = -1
-                    #try:
-                    #    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
-                    #        for cell in row:
-                    #           if cell.value is not None and  cell.value !='' and cell.value != 'AVGH' and isinstance(cell.value,str) :
-                    #                i += 1
-                    #                if (PROV_3DD or PROV_F09) or (PROV_NN or PROV_NED or (float(GVA[i]) + float(GVH[i]) >= 1.83)) or (PROV_TIG or PROV_D3RD or PROV_D5TH) and (PROV_LN7 or PROV_3NR):
-                    #                     cell.fill = PatternFill(start_color="00B0F0", end_color="00B0F0", fill_type="solid")
-                    #except:
-                    #    pass  
-
-                    #HHY...
-                    i = -1
-                    try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
-                            for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'HGD' and isinstance(cell.value,str) :
-                                    i += 1
-                                    if (PROV_HDN or PROV_SK or PROV_AH) and (float(GVA[i]) + float(GVH[i]) >= 1.95) or (PROV_F09):
-                                        cell.border = thick_Blue_border
-                    except:
-                        pass  
+                   
 
                     #SYM...
                     i = -1
@@ -2881,24 +2732,32 @@ class SimulationThread(threading.Thread):
                     ################################################################## F-09 #############################################################
                     i = -1
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=26, max_col=26):
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=5, max_col=5):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'Live' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Away' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     if SDH[i] > SDA[i] :
                                         if   float(SDA[i]) * 1.25 < float(SDH[i]) and float(SDA[i]) * 2.17 > float(SDH[i]) and float(SDA[i]) <= 0.31 and float(SDA[i]) >= 0.11 :
-                                            if (ZOYA[i] == True or ZOYA2[i] == True) :
-                                                cell.border = thick_Black_border
+                                            if (ZOYA[i] == True or ZOYA2[i] == True):
+                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
+                                                cell.font = font
+                                                #cell.border = thick_Black_border
                                             elif (Pink_Zoya[i] == True or Pink_Zoya2[i] == True):
-                                                cell.border = thick_Pink_border
+                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
+                                                cell.font = font
+                                                #cell.border = thick_Pink_border
                                             PROV_F09 = True
                                         
                                     else:  
                                         if   float(SDH[i]) * 1.25 < float(SDA[i]) and float(SDH[i]) * 2.17 > float(SDA[i]) and float(SDH[i]) <= 0.31 and float(SDH[i]) >= 0.11:  # ZOYAF_09[i] == True and
                                             if (ZOYA[i] == True or ZOYA2[i] == True) :
-                                                cell.border = thick_Black_border
+                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
+                                                cell.font = font
+                                                #cell.border = thick_Black_border
                                             elif (Pink_Zoya[i] == True or Pink_Zoya2[i] == True):
-                                                cell.border = thick_Pink_border
+                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
+                                                cell.font = font
+                                                #cell.border = thick_Pink_border
                                             PROV_F09 = True
                     except:
                         pass                
@@ -3993,8 +3852,12 @@ class SimulationThread(threading.Thread):
                             ws.column_dimensions[column[0].column_letter].width = adjusted_width
                         except:
                             pass
-                    ic(TTC)
-                    ic(ZOYA)
+
+                    try:
+                        ic(TTC)
+                        ic(ZOYA)
+                    except:
+                        pass
                     # Center align all cells
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
@@ -4054,7 +3917,8 @@ class SimulationThread(threading.Thread):
                     wb.save(file_path)
                     
             except Exception as e:
-                print(f'Error creating an Excel file.')
+                print(f'Creating Excel File: {e}')
+                pass
             driver.quit()
             #sys.exit()
             #print("bad_games -------->",bad_games)
@@ -4179,9 +4043,8 @@ def puxa_datas():
     datesdict = {}
     cookies = { "Time_Zone": "10" }
     soup = bs(requests.get('https://www.goaloo18.com/football/fixture', cookies=cookies).text, 'html.parser')
-    date_list = soup.find('div', {'class': 'date-picker'})
-    date_list = date_list.find('ul', {'class': 'timeBox'})
-    dates = date_list.find_all('li')
+    dates = soup.select('ul[class="timeBox"] li')
+    #dates = date_list.select('li')
     last_date = 0
     counter = 0
     for link in dates:
@@ -4198,9 +4061,7 @@ def puxa_dias_com_links():
     datesdict = {}
     cookies = { "Time_Zone": "10" }
     soup = bs(requests.get('https://www.goaloo18.com/football/fixture', cookies=cookies).text, 'html.parser')
-    date_list = soup.find('div', {'class': 'date-picker'})
-    date_list = date_list.find('ul', {'class': 'timeBox'})
-    dates = date_list.find_all('li')
+    dates = soup.select('ul[class="timeBox"] li')
     last_date = 0
     counter = 0
     for link in dates:
@@ -4246,7 +4107,7 @@ def show_entries():
 
     leagues = False
     #league_input = input('Do you want to sort by league? (y/n): ')
-    if sort_by_league.lower() == 'YES':
+    if sort_by_league.lower() == 'yes':
         leagues = True
     proxies_file = {'leagues':leagues, 'proxies_file':proxies_file}
 
