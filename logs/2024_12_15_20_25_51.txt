@@ -1,0 +1,28 @@
+2024-12-15 20:25:52,796 [DEBUG] Starting new HTTPS connection (1): www.goaloo18.com:443
+2024-12-15 20:25:54,997 [DEBUG] https://www.goaloo18.com:443 "GET /football/fixture HTTP/1.1" 301 164
+2024-12-15 20:25:54,997 [DEBUG] Starting new HTTPS connection (1): www.goaloo13.com:443
+2024-12-15 20:25:57,137 [DEBUG] https://www.goaloo13.com:443 "GET /football/fixture HTTP/1.1" 200 None
+2024-12-15 20:26:12,427 [DEBUG] Starting new HTTPS connection (1): www.goaloo18.com:443
+2024-12-15 20:26:29,270 [DEBUG] https://www.goaloo18.com:443 "GET /football/fixture HTTP/1.1" 301 164
+2024-12-15 20:26:29,270 [DEBUG] Starting new HTTPS connection (1): www.goaloo13.com:443
+2024-12-15 20:26:31,111 [DEBUG] https://www.goaloo13.com:443 "GET /football/fixture HTTP/1.1" 200 None
+2024-12-15 20:26:31,424 [INFO] Starting thread 0
+2024-12-15 20:26:31,424 [INFO] ====== WebDriver manager ======
+2024-12-15 20:26:33,252 [INFO] Get LATEST chromedriver version for google-chrome
+2024-12-15 20:26:33,269 [DEBUG] Starting new HTTPS connection (1): googlechromelabs.github.io:443
+2024-12-15 20:26:35,466 [DEBUG] https://googlechromelabs.github.io:443 "GET /chrome-for-testing/latest-patch-versions-per-build.json HTTP/1.1" 200 8687
+2024-12-15 20:26:35,763 [INFO] Get LATEST chromedriver version for google-chrome
+2024-12-15 20:26:35,763 [DEBUG] Starting new HTTPS connection (1): googlechromelabs.github.io:443
+2024-12-15 20:26:36,995 [DEBUG] https://googlechromelabs.github.io:443 "GET /chrome-for-testing/latest-patch-versions-per-build.json HTTP/1.1" 200 8687
+2024-12-15 20:26:37,306 [INFO] Get LATEST chromedriver version for google-chrome
+2024-12-15 20:26:37,306 [DEBUG] Starting new HTTPS connection (1): googlechromelabs.github.io:443
+2024-12-15 20:26:38,510 [DEBUG] https://googlechromelabs.github.io:443 "GET /chrome-for-testing/latest-patch-versions-per-build.json HTTP/1.1" 200 8687
+2024-12-15 20:26:38,808 [DEBUG] Starting new HTTPS connection (1): googlechromelabs.github.io:443
+2024-12-15 20:26:40,027 [DEBUG] https://googlechromelabs.github.io:443 "GET /chrome-for-testing/known-good-versions-with-downloads.json HTTP/1.1" 200 69964
+2024-12-15 20:26:45,852 [INFO] WebDriver version 131.0.6778.108 selected
+2024-12-15 20:26:45,862 [INFO] Modern chrome version https://storage.googleapis.com/chrome-for-testing-public/131.0.6778.108/win32/chromedriver-win32.zip
+2024-12-15 20:26:45,862 [INFO] About to download new driver from https://storage.googleapis.com/chrome-for-testing-public/131.0.6778.108/win32/chromedriver-win32.zip
+2024-12-15 20:26:45,862 [DEBUG] Starting new HTTPS connection (1): storage.googleapis.com:443
+2024-12-15 20:26:47,427 [DEBUG] https://storage.googleapis.com:443 "GET /chrome-for-testing-public/131.0.6778.108/win32/chromedriver-win32.zip HTTP/1.1" 200 8495658
+2024-12-15 20:26:47,427 [INFO] Driver downloading response is 200
+2024-12-15 20:27:33,766 [INFO] Detected error 10054 in thread 0. Restarting the thread...

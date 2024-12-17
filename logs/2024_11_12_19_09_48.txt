@@ -1,0 +1,4 @@
+2024-11-12 19:09:49,026 [DEBUG] Starting new HTTPS connection (1): www.goaloo18.com:443
+2024-11-12 19:09:51,222 [DEBUG] https://www.goaloo18.com:443 "GET /football/fixture HTTP/1.1" 301 164
+2024-11-12 19:09:51,222 [DEBUG] Starting new HTTPS connection (1): www.goaloo12.com:443
+2024-11-12 19:09:53,483 [DEBUG] https://www.goaloo12.com:443 "GET /football/fixture HTTP/1.1" 200 None
