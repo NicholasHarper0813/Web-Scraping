@@ -14,9 +14,7 @@ import customtkinter as ctk
 from ttkthemes import ThemedTk
 from tkinter import messagebox
 import logging.config
-from time import sleep
 from concurrent.futures import thread
-from concurrent.futures import ThreadPoolExecutor
 from selenium.webdriver.common.keys import Keys
 from seleniumwire import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
@@ -39,8 +37,8 @@ import random
 import sys
 import threading
 import time
-import traceback
-import shutil, getpass, zipfile, os, re
+# import traceback
+import shutil, getpass, requests, zipfile, os, re#, wget
 import re
 import copy
 
@@ -58,7 +56,7 @@ def generate_log_filename():
     log_fname = os.path.join(log_dir, now_str) + '.txt'
     return log_fname
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.DEBUG,  # Log WARNING and above.
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler(generate_log_filename()),
@@ -122,6 +120,7 @@ class SimulationThread(threading.Thread):
             self.failed = True
             error_message = str(e).lower()
             if error_message.find('connection was forcibly closed') != -1:
+                # 10054 handler
                 logging.info(f'Detected error 10054 in thread {self.thread_id}. Restarting the thread...')
                 self.simulation.restart_thread(old_thread=self)
             elif error_message.find('err_tunnel_connection_failed') != -1:
@@ -132,30 +131,42 @@ class SimulationThread(threading.Thread):
                 logging.info('Couldn\'t find window')
                 thread._shutdown
             else:
+                # Generic error handler.
+                # This call also logs a stack trace.
                 logging.exception(f'Thread {self.thread_id} exited with an error.')
     def stop(self):
         self.requested_stop = True
 
     def automate(self, id, url, proxy, emails, run_time):
+        #show_loading()
+        # try:
+        #     username, password = combo.split(":")
+        # except:
+        #     username = combo
+        #     password = "3334444"
         lock.acquire()
+        wireoptions = {
+        # 'proxy': {
+        #     'http':'http://%s' %proxy,
+        #     'https': 'https://%s' %proxy,
+        #     'no_proxy': 'localhost,127.0.0.1'
+        #         }
+        }
         options = Options()
         options.add_argument("start-maximized")
-        options.add_argument("--headless")  # Use headless mode
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument("--mute-audio")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        # options.add_extension('active.crx')
+        # options.add_extension('css.crx')
+        # scriptDirectory = pathlib.Path().absolute()
+        # directory = ''.join(random.choice(string.ascii_letters + string.digits) for i in range(8))
+        # directory = "chrome_"+ directory
+        # options.add_argument(f'--user-data-dir={scriptDirectory}\{directory}')
         s = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=s, options=options)
-
-        def scrape_game(game):
-            game_time = game.find_element(By.CLASS_NAME, "time").text
-            game_time = datetime.datetime.strptime(game_time, "%H:%M").time()
-            if url['start_time'] <= game_time <= url['end_time']:
-                return game.get_attribute('id').split('_')[1]
-            return None
-
+        driver = webdriver.Chrome(service=s, options=options, seleniumwire_options=wireoptions)
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -172,7 +183,7 @@ class SimulationThread(threading.Thread):
             lock.release()
             website = "https:/www.goaloo18.com" + emails
             m_url = 'https://www.goaloo18.com/football'
-            #print(f"\033[92m{website}\033[0m")
+            print(f"\033[92m{website}\033[0m")
             driver.get(website)
             driver.add_cookie({"name": "Time_Zone", "value": "10"})
             driver.add_cookie({"name": "FilterOptionFix", "value": "0"})
@@ -181,27 +192,23 @@ class SimulationThread(threading.Thread):
             else:
                 driver.add_cookie({"name": "orderby", "value": "time"})
             driver.refresh()
-
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "tr[leaindex][index][id^='tr1']"))
-            )
-
+            time.sleep(3)
             games = driver.find_elements(By.CSS_SELECTOR, "tr[leaindex][index][id^='tr1']")
             act_data = []
             data = {'Time':'', 'Date': '', 'League':'', 'Home vs Guest':'','Goal Value A':'','Goal Value H':'','Goal Cost Home':'','Goal Cost Away':'', 'Score(Finished)':'', 'Over':'', 'STAKE POOL': '', 'Early':'', 'SUM':'','Live':''}
             for team_score_index in range(1, max_goals):
                 data[f'goal{team_score_index}'] = ''
-            #print(f"\033[93m{len(games)}\033[0m")
-            print(f"\033[92m{website}\033[0m")
+            print(f"\033[93m{len(games)}\033[0m")
+            # Click on an element to open a new tab
             original_window_handle = driver.current_window_handle
-            
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                results = executor.map(scrape_game, games)
-
-            for result in results:
-                if result:
-                    gameids.append(int(result))
-
+            for game in games:
+                game_time = game.find_element(By.CLASS_NAME, "time").text
+                game_time = datetime.datetime.strptime(game_time, "%H:%M").time()
+                if url['start_time'] <= game_time <= url['end_time']:
+                    gameids.append(game.get_attribute('id').split('_')[1])
+                else:
+                    continue
+            #print(gameids)
             if proxy == 0:
                 proxy = len(gameids)
             print(f'trying to calculate data for {proxy} games')
@@ -224,18 +231,22 @@ class SimulationThread(threading.Thread):
                         if count >= proxy:
                             df = pd.DataFrame(data)
                             df.to_excel(f'{date.strip()}.xlsx', index=False)
+                            #print(f'I hit my {proxy} game count limit, data has been stored to an excel file in the current directory')
                             driver.quit()
                             input('press enter to exit')
                             sys.exit()
                         count+=1
                         try:
-                            #print(f'Game Number -> {gameid}')
+                            print(f'analyzing game number {gameid}')
                             driver.get(f'{m_url}/match/live-{gameid}')
-                            
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, '//span[@class="sclassLink"]'))
-                            )
+                            time.sleep(2)
                             league = driver.find_element(By.XPATH, '//span[@class="sclassLink"]').text
+                        except NoSuchElementException:
+                            try:    
+                                league = driver.find_element(By.CSS_SELECTOR, '.nosclassLink').text
+                            except:
+                                driver.refresh()
+                                league = driver.find_element(By.XPATH, "//*[@id='fbheader']/div[1]/span[1]/span").text
                         except:
                             continue
 
@@ -245,43 +256,34 @@ class SimulationThread(threading.Thread):
                         goals = []
                         score = []
                         
-                        def wait_for_element(driver, xpath, timeout=10):
-                            return WebDriverWait(driver, timeout).until(
-                                EC.presence_of_element_located((By.XPATH, xpath))
-                            ).text
-
-                        #print("analyzing")
+                        print("-----")
                         if 'Finished' in driver.find_element(By.XPATH, "//*[@id='mScore']").text:
                             goal_A = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[1]').text
                             goal_B = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[3]').text
                             score.append(f"{goal_A} x {goal_B}")
-                            
                             rows = driver.find_elements(By.XPATH, '//table[@class="team-table-other ky"]/tbody/tr')
                             for row in rows:
                                 if row.find_elements(By.XPATH, './/img[@alt="Goal"]') or row.find_elements(By.XPATH, './/img[@alt="Penalty scored"]') or row.find_elements(By.XPATH, './/img[@alt="Own goal"]'):
                                     goal_time = row.find_element(By.XPATH, './/td/b').text
                                     goals.append(goal_time)
-								    
                         else:
                             goal_A = "NA"
-                            goal_B = "NA" 
-
+                            goal_B = "NA"    
                         goals.reverse()
-                        
                         driver.get(f'{m_url}/match/over-under-odds-{gameid}')
-                        WebDriverWait(driver, 10).until(
-                            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1"))
-                        )
-
-                        companys = driver.find_elements(By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1")
-                        first_odds = 0
-                        odds_goals = 0
+                        time.sleep(3)
+                        companys = driver.find_elements(By.CSS_SELECTOR,"tr.tb-bgcolor")
+                        companys += driver.find_elements(By.CSS_SELECTOR,"tr.tb-bgcolor1")
+                        time.sleep(1)
                         try:
                             for com in companys:
                                 if "Interwetten" == com.find_element(By.CSS_SELECTOR,"td.rb").text:
+                                    time.sleep(1)
                                     first_odds = com.find_elements(By.TAG_NAME,"td")[1].text
                                     odds_goals = com.find_elements(By.TAG_NAME,"td")[2].text
                         except:
+                            first_odds = 0
+                            odds_goals = 0
                             pass
 						
                         bet365_early_data_deep_copied = "0.0 / 0.0 / 0.0"
@@ -289,18 +291,26 @@ class SimulationThread(threading.Thread):
 
                         try:
                             driver.get(f'{m_url}/{league}/live-{gameid}')
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]'))
-                            )
-                            
+                            time.sleep(4)
                             early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
                             new_values = early_live_str.split()
                             bet365_early_data_deep_copied = " / ".join(new_values[1:4])
                             bet365_live_data_deep_copied = " / ".join(new_values[4:7])
+                            time.sleep(1)
+
                         except:
-                            pass
+                            try:
+                                driver.refresh()
+                                time.sleep(3)
+                                early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
+                                new_values = early_live_str.split()
+                                bet365_early_data_deep_copied = " / ".join(new_values[1:4])
+                                bet365_live_data_deep_copied = " / ".join(new_values[4:7])
+                                time.sleep(1)
+                            except:
+                                pass
                             
-                        working_count += 1
+                        working_count+=1
 
                         date_deep_copied = str(date)
                         match_time_deep_copied = match_time
@@ -318,12 +328,15 @@ class SimulationThread(threading.Thread):
                             STAKE_POOL_1 = (float(numbers[0])/float(numbers[1])) / 2
                             STAKE_POOL_2 = (float(numbers[2])/float(numbers[1])) + STAKE_POOL_1
                         
+                        # Convert each substring to float and sum them
                         total_sum = sum(float(num) for num in numbers)
                         result_ = total_sum / 3
                         rounded_result = round(result_, 5)
 
                         try:   
                             response = requests.get(f'{m_url}/match/h2h-{gameid}')
+                            from time import sleep
+                            sleep(5)
                         except:
                             print('cant open URL')
                         
@@ -331,6 +344,7 @@ class SimulationThread(threading.Thread):
                         porletP6_element = soup.find(id="porletP6")
                         
                         x  = porletP6_element.find(id="table_v1")
+
                         y  = porletP6_element.find(id="table_v2")
                         rows_in_table_v2 = x.find_all("tr")
                         rows_in_table_v1 = y.find_all("tr")
@@ -339,13 +353,15 @@ class SimulationThread(threading.Thread):
                             good_data = False
                             bad_games.append(gameid)
 
+                        print('analyse_success') 
+                        #print(date_deep_copied,match_time_deep_copied,league_deep_copied,home_team_deep_copied,goal_A_deep_copied,first_odds_deep_copied,odds_goals_deep_copied,bet365_early_data_deep_copied,bet365_live_data_deep_copied)
                         home = home_team_deep_copied.split("VS")[0]
                         away = home_team_deep_copied.split("VS")[1]
                         GH = goal_A_deep_copied.split("x")[0]
                         GA = goal_A_deep_copied.split("x")[1]
                         if  good_data == True  and first_odds_deep_copied != "-" :
                             cc += 1
-                            print(f'Now on GAME ({gameid}): ', cc, home, away)
+                            print('Now on GAME : ',cc,home,away)
                             data['Time'] = match_time_deep_copied
                             data['Date'] = date_deep_copied
                             data['League'] =league_deep_copied
@@ -376,13 +392,12 @@ class SimulationThread(threading.Thread):
                                     data[f'goal{team_score_index}'] = gol
                                 except IndexError:
                                     data[f'goal{team_score_index}'] = 'NA'
-             
+                            #if count%10==0:
+                                #print(f'calculated {count} out of {len(gameids)}, {working_count} had Bet365 data {count-working_count} Didn\'t have required data and where skipped')
+                            
                             act_data.append(data.copy())
-
                             driver.get(f'{m_url}/match/h2h-{gameid}#porletP6')
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "porletP6"))
-                            )
+                            
                             porletP5 = driver.find_element(By.ID,"porletP6")
                             table_v1 = porletP5.find_element(By.ID,"table_v1")
                             table_v1_ = {'Team':'','Score':'','W/L':'','AVGH':'','AVGA':'','HGD':'','AGD':'','SD Home':'','SD Away':'','CV Home':'','CV Away':'',"AGH":''}
@@ -393,13 +408,8 @@ class SimulationThread(threading.Thread):
                             valid_t1_matchs = []
                             SD = 0
                             home_goals = []
-
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "cb_sos1"))
-                            )
                             button = driver.find_element(By.ID, "cb_sos1")
                             button.click()
-                            time.sleep(1)
                             z =10
                             for y in range(1,z):
                                 td = table_v1.find_element(By.ID,"tr1_"+str(y))
@@ -407,13 +417,15 @@ class SimulationThread(threading.Thread):
                                     z=z+1
                                 else:
                                     home_goals.append(td.find_elements(By.TAG_NAME,"td")[3].text)
-                                    #print('valeur: ',td.find_elements(By.TAG_NAME,"td")[3].text,y )
+                                    print('valeur: ',td.find_elements(By.TAG_NAME,"td")[3].text,y )
                             home_goals = home_goals[0:5]     
                             adx = 0
                             for elmt in home_goals:
                                 adx += int(elmt[0:1])
                             
+                            #print('adx',adx/5)
                             button.click()
+                            time.sleep(1)
                             AGH = 0
                             for x in range(1,6):
                                 try:
@@ -432,6 +444,7 @@ class SimulationThread(threading.Thread):
                                         table_v1_['Score'] = '1-1(0-0)'
                                         table_v1_['W/L'] = 'D'
 
+									#Updated by Wassim Karaouli
                                     try:
                                         table_v1_score_value0 = int(table_v1_['Score'][0])
                                         table_v1_score_value2 = int(table_v1_['Score'][2])
@@ -494,7 +507,7 @@ class SimulationThread(threading.Thread):
                                 adx += int(elmt[2:3])
 
                             button.click()
-                            time.sleep(1)
+                            time.sleep(2)
                             AGA = 0
                             for x in range(1,6):
                                 try:
@@ -564,6 +577,7 @@ class SimulationThread(threading.Thread):
             try:
                 df = pd.DataFrame(act_data)
             
+                # Updated by Wassim Karaouli (Arrange columns and Rows)
                 new_sheet_order = ['Time', 'Date', 'League', 'Home','Away','GH','GA','AVGH', 'AVGA','AGH','AGA','HGD','AGD','Goal Value A', 'Goal Value H', 'Goal Cost Home', 'Goal Cost Away', 'CV Home','CV Away','Prob.home', 'Prob.Away','SD Home','SD Away','Early', 'SUM', 'Live','goal1', 'goal2', 'goal3', 'goal4', 'goal5', 'goal6', 'goal7', 'goal8', 'goal9', 'goal10', 'Over', 'STAKE POOL', 'Team', 'Score', 'W/L']
                 df = df.reindex(columns=new_sheet_order)
                 df['CV Home'] = df['CV Home'].shift(-5)
@@ -1212,6 +1226,8 @@ class SimulationThread(threading.Thread):
                                     i+= 1
                                     if resH[i] == True:
                                         cell.fill = PatternFill(start_color="92CDDC", end_color="92CDDC", fill_type="solid")
+                                        #font = Font(color='#92CDDC',name='Arial Narrow', size=11, bold=True, italic=True)
+                                        #cell.font = font
                                         PROV_D5TH = True
                     except:
                         pass
@@ -1346,31 +1362,28 @@ class SimulationThread(threading.Thread):
                         resA = []  # Resultado para a lista "away"
 
                         # Verifica a lista "home"
-                        try:
-                            for elem in home:
-                                found = False
-                                for i in range(len(elem)):
-                                    if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
-                                        found = True
-                                        if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
-                                            lis_color[0].append('FF0000FF')  # Azul
-                                        elif elem[i][-1].upper() == 'L':
-                                            lis_color[0].append('FFFF0000')  # Vermelho
-                                resH.append(found)
+                        for elem in home:
+                            found = False
+                            for i in range(len(elem)):
+                                if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
+                                    found = True
+                                    if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
+                                        lis_color[0].append('FF0000FF')  # Azul
+                                    elif elem[i][-1].upper() == 'L':
+                                        lis_color[0].append('FFFF0000')  # Vermelho
+                            resH.append(found)
 
-                            # Verifica a lista "away"
-                            for elem in away:
-                                found = False
-                                for i in range(len(elem)):
-                                    if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
-                                        found = True
-                                        if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
-                                            lis_color[1].append('FF0000FF')  # Azul
-                                        elif elem[i][-1].upper() == 'L':
-                                            lis_color[1].append('FFFF0000')  # Vermelho
-                                resA.append(found)
-                        except:
-                            pass
+                        # Verifica a lista "away"
+                        for elem in away:
+                            found = False
+                            for i in range(len(elem)):
+                                if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
+                                    found = True
+                                    if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
+                                        lis_color[1].append('FF0000FF')  # Azul
+                                    elif elem[i][-1].upper() == 'L':
+                                        lis_color[1].append('FFFF0000')  # Vermelho
+                            resA.append(found)
 
                         return resH, resA, lis_color
 
@@ -1408,6 +1421,7 @@ class SimulationThread(threading.Thread):
                                         )
                                         cell.border = border_color  # Aplica borda
                                         PROV_D77 = True
+
                     except Exception as e:
                         print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
                     ################################################################ DIR (Modified) ##########################################################################
@@ -2847,7 +2861,7 @@ class SimulationThread(threading.Thread):
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != "HGD" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != "Goal Cost Home" and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(HGD[i]) *2.4)
@@ -3904,9 +3918,10 @@ class SimulationThread(threading.Thread):
                     
             except Exception as e:
                 print(f'Creating Excel File: {e}')
-                traceback.print_exc()
                 pass
             driver.quit()
+            #sys.exit()
+            #print("bad_games -------->",bad_games)
             
         except Exception as e:
             message = 'an Error occured with Farhan Pirzada\'s script message him on upwork or email F.pirzada7@gmail.com\n'

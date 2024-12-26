@@ -5,6 +5,7 @@ from openpyxl import load_workbook
 from bs4 import BeautifulSoup
 from openpyxl.styles import Border, Side
 import math
+import os
 import string
 import numpy as np 
 import tkinter as tk
@@ -14,9 +15,7 @@ import customtkinter as ctk
 from ttkthemes import ThemedTk
 from tkinter import messagebox
 import logging.config
-from time import sleep
 from concurrent.futures import thread
-from concurrent.futures import ThreadPoolExecutor
 from selenium.webdriver.common.keys import Keys
 from seleniumwire import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
@@ -39,11 +38,12 @@ import random
 import sys
 import threading
 import time
-import traceback
-import shutil, getpass, zipfile, os, re
+# import traceback
+import shutil, getpass, requests, zipfile, os, re#, wget
 import re
 import copy
 
+########################################################################################################
 STAT_LOGGING_INTERVAL = 60  # Seconds
 THREAD_SHUTDOWN_TIMEOUT = 3  # Seconds
 thread_start_delay = 0
@@ -58,9 +58,11 @@ def generate_log_filename():
     log_fname = os.path.join(log_dir, now_str) + '.txt'
     return log_fname
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.DEBUG,  # Log WARNING and above.
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
+        # Uncomment this if you want logging to a file. It may be useful with
+        # long-running simulations with a lot of threads.
         logging.FileHandler(generate_log_filename()),
     ]
     
@@ -116,12 +118,17 @@ class SimulationThread(threading.Thread):
         logging.getLogger("seleniumwire").setLevel(logging.WARNING)
         logging.info(f'Starting thread {self.thread_id}')
         try:
+            # Swap this for your own automate.
             self.automate(self.thread_id, self.url, self.proxy, self.combo, self.run_time)
+
+        # except SystemExit:
+        #     logging.info(f'Terminating thread {self.thread_id}')
 
         except Exception as e:
             self.failed = True
             error_message = str(e).lower()
             if error_message.find('connection was forcibly closed') != -1:
+                # 10054 handler
                 logging.info(f'Detected error 10054 in thread {self.thread_id}. Restarting the thread...')
                 self.simulation.restart_thread(old_thread=self)
             elif error_message.find('err_tunnel_connection_failed') != -1:
@@ -132,30 +139,43 @@ class SimulationThread(threading.Thread):
                 logging.info('Couldn\'t find window')
                 thread._shutdown
             else:
+                # Generic error handler.
+                # This call also logs a stack trace.
                 logging.exception(f'Thread {self.thread_id} exited with an error.')
+                #print(f'-----------------------------------\n{e}\n-----------------------------------')
     def stop(self):
         self.requested_stop = True
 
     def automate(self, id, url, proxy, emails, run_time):
+        #show_loading()
+        # try:
+        #     username, password = combo.split(":")
+        # except:
+        #     username = combo
+        #     password = "3334444"
         lock.acquire()
+        wireoptions = {
+        # 'proxy': {
+        #     'http':'http://%s' %proxy,
+        #     'https': 'https://%s' %proxy,
+        #     'no_proxy': 'localhost,127.0.0.1'
+        #         }
+        }
         options = Options()
         options.add_argument("start-maximized")
-        options.add_argument("--headless")  # Use headless mode
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         options.add_experimental_option('useAutomationExtension', False)
         options.add_argument("--mute-audio")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        # options.add_extension('active.crx')
+        # options.add_extension('css.crx')
+        # scriptDirectory = pathlib.Path().absolute()
+        # directory = ''.join(random.choice(string.ascii_letters + string.digits) for i in range(8))
+        # directory = "chrome_"+ directory
+        # options.add_argument(f'--user-data-dir={scriptDirectory}\{directory}')
         s = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=s, options=options)
-
-        def scrape_game(game):
-            game_time = game.find_element(By.CLASS_NAME, "time").text
-            game_time = datetime.datetime.strptime(game_time, "%H:%M").time()
-            if url['start_time'] <= game_time <= url['end_time']:
-                return game.get_attribute('id').split('_')[1]
-            return None
-
+        driver = webdriver.Chrome(service=s, options=options, seleniumwire_options=wireoptions)
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -172,7 +192,7 @@ class SimulationThread(threading.Thread):
             lock.release()
             website = "https:/www.goaloo18.com" + emails
             m_url = 'https://www.goaloo18.com/football'
-            #print(f"\033[92m{website}\033[0m")
+            print(website)
             driver.get(website)
             driver.add_cookie({"name": "Time_Zone", "value": "10"})
             driver.add_cookie({"name": "FilterOptionFix", "value": "0"})
@@ -181,29 +201,26 @@ class SimulationThread(threading.Thread):
             else:
                 driver.add_cookie({"name": "orderby", "value": "time"})
             driver.refresh()
-
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "tr[leaindex][index][id^='tr1']"))
-            )
-
+            time.sleep(5)
             games = driver.find_elements(By.CSS_SELECTOR, "tr[leaindex][index][id^='tr1']")
             act_data = []
             data = {'Time':'', 'Date': '', 'League':'', 'Home vs Guest':'','Goal Value A':'','Goal Value H':'','Goal Cost Home':'','Goal Cost Away':'', 'Score(Finished)':'', 'Over':'', 'STAKE POOL': '', 'Early':'', 'SUM':'','Live':''}
             for team_score_index in range(1, max_goals):
                 data[f'goal{team_score_index}'] = ''
-            #print(f"\033[93m{len(games)}\033[0m")
-            print(f"\033[92m{website}\033[0m")
+            print(len(games))
+            # Click on an element to open a new tab
             original_window_handle = driver.current_window_handle
-            
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                results = executor.map(scrape_game, games)
-
-            for result in results:
-                if result:
-                    gameids.append(int(result))
-
+            for game in games:
+                game_time = game.find_element(By.CLASS_NAME, "time").text
+                game_time = datetime.datetime.strptime(game_time, "%H:%M").time()
+                if url['start_time'] <= game_time <= url['end_time']:
+                    gameids.append(game.get_attribute('id').split('_')[1])
+                else:
+                    continue
+            print(gameids)
             if proxy == 0:
                 proxy = len(gameids)
+            #proxy = 3
             print(f'trying to calculate data for {proxy} games')
             working_count = 0
             count = 0
@@ -224,18 +241,23 @@ class SimulationThread(threading.Thread):
                         if count >= proxy:
                             df = pd.DataFrame(data)
                             df.to_excel(f'{date.strip()}.xlsx', index=False)
+                            print(f'I hit my {proxy} game count limit, data has been stored to an excel file in the current directory')
                             driver.quit()
                             input('press enter to exit')
                             sys.exit()
                         count+=1
                         try:
-                            #print(f'Game Number -> {gameid}')
+                            print(f'{m_url}/match/live-{gameid}')
                             driver.get(f'{m_url}/match/live-{gameid}')
-                            
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, '//span[@class="sclassLink"]'))
-                            )
+                            time.sleep(2)
                             league = driver.find_element(By.XPATH, '//span[@class="sclassLink"]').text
+                        except NoSuchElementException:
+                            try:    
+                                #print("NoSuchElementException")
+                                league = driver.find_element(By.CSS_SELECTOR, '.nosclassLink').text
+                            except:
+                                driver.refresh()
+                                league = driver.find_element(By.XPATH, "//*[@id='fbheader']/div[1]/span[1]/span").text
                         except:
                             continue
 
@@ -245,63 +267,109 @@ class SimulationThread(threading.Thread):
                         goals = []
                         score = []
                         
-                        def wait_for_element(driver, xpath, timeout=10):
-                            return WebDriverWait(driver, timeout).until(
-                                EC.presence_of_element_located((By.XPATH, xpath))
-                            ).text
-
-                        #print("analyzing")
+                        # goal_A = None
+                        # goal_B = None
+                        # first_odds = None
+                        # odds_goals = None
+                        print("--")
                         if 'Finished' in driver.find_element(By.XPATH, "//*[@id='mScore']").text:
                             goal_A = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[1]').text
                             goal_B = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[3]').text
                             score.append(f"{goal_A} x {goal_B}")
-                            
                             rows = driver.find_elements(By.XPATH, '//table[@class="team-table-other ky"]/tbody/tr')
                             for row in rows:
                                 if row.find_elements(By.XPATH, './/img[@alt="Goal"]') or row.find_elements(By.XPATH, './/img[@alt="Penalty scored"]') or row.find_elements(By.XPATH, './/img[@alt="Own goal"]'):
+                                    # if the row contains the image, extract the goal time
                                     goal_time = row.find_element(By.XPATH, './/td/b').text
                                     goals.append(goal_time)
-								    
                         else:
                             goal_A = "NA"
-                            goal_B = "NA" 
-
+                            goal_B = "NA"    
                         goals.reverse()
-                        
+                        # date = date.split( )
+                        # match_time = date[3]
+                        # date = f'{date[0]} {date[1]}'
                         driver.get(f'{m_url}/match/over-under-odds-{gameid}')
-                        WebDriverWait(driver, 10).until(
-                            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1"))
-                        )
-
-                        companys = driver.find_elements(By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1")
-                        first_odds = 0
-                        odds_goals = 0
+                        time.sleep(3)
+                        companys = driver.find_elements(By.CSS_SELECTOR,"tr.tb-bgcolor")
+                        companys += driver.find_elements(By.CSS_SELECTOR,"tr.tb-bgcolor1")
+                        time.sleep(1)
                         try:
                             for com in companys:
+                            #print("=======")
+                            #print(com.find_element(By.CSS_SELECTOR,"td.rb").text)
                                 if "Interwetten" == com.find_element(By.CSS_SELECTOR,"td.rb").text:
+                                    time.sleep(1)
                                     first_odds = com.find_elements(By.TAG_NAME,"td")[1].text
                                     odds_goals = com.find_elements(By.TAG_NAME,"td")[2].text
+                                    print("Over : "+ first_odds)
+                                    print("Goals : "+ odds_goals)
                         except:
+                            first_odds = 0
+                            odds_goals = 0
                             pass
+
+                        # first_odds = driver.find_element(By.XPATH, '//*[@id="CompanyOddsDiv"]/table/tbody/tr[3]/td[2]/span').text
+                        # if first_odds == '-':
+                        #     first_odds = 0
+                        # first_odds = float(first_odds)
+                        # if first_odds > 2:
+                        #     odds_goals = driver.find_element(By.XPATH, '//*[@id="CompanyOddsDiv"]/table/tbody/tr[3]/td[3]/span').text
+                        # else:
+                        #     odds_goals = "NA"
+                        #driver.get(f'{m_url}/oddshistory/5_8_{gameid}')
 						
                         bet365_early_data_deep_copied = "0.0 / 0.0 / 0.0"
                         bet365_live_data_deep_copied = "0.0 / 0.0 / 0.0"
 
                         try:
                             driver.get(f'{m_url}/{league}/live-{gameid}')
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]'))
-                            )
-                            
+                            time.sleep(4)
                             early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
                             new_values = early_live_str.split()
                             bet365_early_data_deep_copied = " / ".join(new_values[1:4])
                             bet365_live_data_deep_copied = " / ".join(new_values[4:7])
-                        except:
-                            pass
-                            
-                        working_count += 1
+                            time.sleep(1)
 
+                            #print(bet365_early_data_deep_copied)
+                            #print(bet365_live_data_deep_copied)
+                        except:
+                            print('Trying')
+                            try:
+                                driver.refresh()
+                                time.sleep(3)
+                                early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
+                                new_values = early_live_str.split()
+                                bet365_early_data_deep_copied = " / ".join(new_values[1:4])
+                                bet365_live_data_deep_copied = " / ".join(new_values[4:7])
+                                time.sleep(1)
+                            except:
+                                pass
+                            
+                        #try:
+                        #    bet365_early_data = driver.find_element(By.XPATH, "/html/body/table[2]/tbody/tr[4]").text.split(' ')
+                        #    bet365_live_data = driver.find_element(By.XPATH, "/html/body/table[2]/tbody/tr[5]").text.split(' ')
+                        #    print('Trying')
+                        #except NoSuchElementException:
+                        #    print('Failed 1')
+                        #    try:
+                        #        driver.refresh()
+                        #        time.sleep(5)
+                        #        bet365_early_data = driver.find_element(By.XPATH, "/html/body/table[2]/tbody/tr[4]").text.split(' ')
+                        #        bet365_live_data = driver.find_element(By.XPATH, "/html/body/table[2]/tbody/tr[5]").text.split(' ')
+                        #        print('Trying 1')
+                        #    except:
+                        #        print('Failed 2')
+                        #        continue
+                        #if len(bet365_early_data) < 16:
+                        #    print('Failed 3')
+                        #    continue
+                            
+                        #else:
+                        #    print('FINE_OK')
+                        working_count+=1
+
+                        # print(f'league is {league}, home: {home_team}, guest: {guest_team}, 1 = {bet365_data[3]} x = {bet365_data[4]} 2 = {bet365_data[5]}')
                         date_deep_copied = str(date)
                         match_time_deep_copied = match_time
                         league_deep_copied = str(league)
@@ -309,6 +377,11 @@ class SimulationThread(threading.Thread):
                         goal_A_deep_copied = str(f"{goal_A} x {goal_B}")
                         first_odds_deep_copied = str(first_odds)
                         odds_goals_deep_copied = str(odds_goals)
+                        #bet365_early_data_deep_copied = str(f"{float(bet365_early_data[1])} / {float(bet365_early_data[2].split('/')[0])} / {float(bet365_early_data[3])}")
+                        #bet365_early_data_deep_copied = str(f"{float(bet365_early_data[1].split('/')[0])} / {float(bet365_early_data[1].split('/')[1])} / {float(bet365_early_data[2])}")
+                        #bet365_live_data_deep_copied = str(f"{float(bet365_live_data[1])} / {float(bet365_live_data[2])} / {float(bet365_live_data[3])}")
+                        #bet365_live_data_deep_copied = str(f"{float(bet365_live_data[1].split('/')[0])} / {float(bet365_live_data[1].split('/')[1])} / {float(bet365_live_data[2])}")
+                        # Split the input string by '/'
                         numbers = bet365_early_data_deep_copied.split('/')
                         
                         if (float(numbers[0]) + float(numbers[1]) + float(numbers[2])) == 0:
@@ -318,12 +391,15 @@ class SimulationThread(threading.Thread):
                             STAKE_POOL_1 = (float(numbers[0])/float(numbers[1])) / 2
                             STAKE_POOL_2 = (float(numbers[2])/float(numbers[1])) + STAKE_POOL_1
                         
+                        # Convert each substring to float and sum them
                         total_sum = sum(float(num) for num in numbers)
                         result_ = total_sum / 3
                         rounded_result = round(result_, 5)
 
                         try:   
                             response = requests.get(f'{m_url}/match/h2h-{gameid}')
+                            from time import sleep
+                            sleep(5)
                         except:
                             print('cant open URL')
                         
@@ -331,21 +407,27 @@ class SimulationThread(threading.Thread):
                         porletP6_element = soup.find(id="porletP6")
                         
                         x  = porletP6_element.find(id="table_v1")
+
                         y  = porletP6_element.find(id="table_v2")
                         rows_in_table_v2 = x.find_all("tr")
                         rows_in_table_v1 = y.find_all("tr")
+                        #print("ùùùùùùùùùùùùùùùùùùùùùùùùùù",len(rows_in_table_v2),len(rows_in_table_v1))
                         good_data = True
                         if len(rows_in_table_v1) !=25 or len(rows_in_table_v2) != 25:
                             good_data = False
                             bad_games.append(gameid)
+                        #print('bad gamessssss',bad_games)
 
+                        
+                        print(date_deep_copied,match_time_deep_copied,league_deep_copied,home_team_deep_copied,goal_A_deep_copied,first_odds_deep_copied,odds_goals_deep_copied,bet365_early_data_deep_copied,bet365_live_data_deep_copied)
+                        #print(type(home_team_deep_copied),home_team_deep_copied)
                         home = home_team_deep_copied.split("VS")[0]
                         away = home_team_deep_copied.split("VS")[1]
                         GH = goal_A_deep_copied.split("x")[0]
                         GA = goal_A_deep_copied.split("x")[1]
                         if  good_data == True  and first_odds_deep_copied != "-" :
                             cc += 1
-                            print(f'Now on GAME ({gameid}): ', cc, home, away)
+                            print('THIS GAME IS NUMBER: ',cc,home,away)
                             data['Time'] = match_time_deep_copied
                             data['Date'] = date_deep_copied
                             data['League'] =league_deep_copied
@@ -359,6 +441,8 @@ class SimulationThread(threading.Thread):
                             data['SUM'] = rounded_result
                             data['Live'] = bet365_live_data_deep_copied
                          
+
+                            #Updated by Wassim Karaouli(Adding 2 new columns Prob.home and Prob.Away )
                             values = data['Early'].split('/')
                             value1 = float(values[0].strip())
                             value2 = float(values[1].strip())
@@ -370,21 +454,25 @@ class SimulationThread(threading.Thread):
                                 data['Prob.home'] = str(1/value1)
                                 data['Prob.Away'] = str(1/value3)
 
+                            # data['Company'] = "Bet365"
+                            # data['Link'] = f'{m_url}/match/live-{gameid}'
                             for team_score_index in range(1, max_goals):
                                 try:
                                     gol = copy.deepcopy(goals[team_score_index-1])
                                     data[f'goal{team_score_index}'] = gol
                                 except IndexError:
                                     data[f'goal{team_score_index}'] = 'NA'
-             
+                            if count%10==0:
+                                print(f'calculated {count} out of {len(gameids)}, {working_count} had Bet365 data {count-working_count} Didn\'t have required data and where skipped')
+                            
                             act_data.append(data.copy())
-
                             driver.get(f'{m_url}/match/h2h-{gameid}#porletP6')
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "porletP6"))
-                            )
+                            
                             porletP5 = driver.find_element(By.ID,"porletP6")
+                            # fscore_1 red2
                             table_v1 = porletP5.find_element(By.ID,"table_v1")
+                            
+                            #print("Team : " + table_v1.find_element(By.TAG_NAME,"a").text)
                             table_v1_ = {'Team':'','Score':'','W/L':'','AVGH':'','AVGA':'','HGD':'','AGD':'','SD Home':'','SD Away':'','CV Home':'','CV Away':'',"AGH":''}
                             total_goals_t1 = 0
                             
@@ -393,13 +481,8 @@ class SimulationThread(threading.Thread):
                             valid_t1_matchs = []
                             SD = 0
                             home_goals = []
-
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "cb_sos1"))
-                            )
                             button = driver.find_element(By.ID, "cb_sos1")
                             button.click()
-                            time.sleep(1)
                             z =10
                             for y in range(1,z):
                                 td = table_v1.find_element(By.ID,"tr1_"+str(y))
@@ -407,13 +490,17 @@ class SimulationThread(threading.Thread):
                                     z=z+1
                                 else:
                                     home_goals.append(td.find_elements(By.TAG_NAME,"td")[3].text)
-                                    #print('valeur: ',td.find_elements(By.TAG_NAME,"td")[3].text,y )
+                                    print('valeur: ',td.find_elements(By.TAG_NAME,"td")[3].text,y )
                             home_goals = home_goals[0:5]     
                             adx = 0
                             for elmt in home_goals:
                                 adx += int(elmt[0:1])
                             
+                            print('adx',adx/5)
+                            #print('HOME GOALS//////ssssssssssssssssssssssss/',home_goals)
                             button.click()
+                            #print('HOME GOALS////sddddddddddddddddddd///',home_goals)
+                            time.sleep(1)
                             AGH = 0
                             for x in range(1,6):
                                 try:
@@ -421,6 +508,7 @@ class SimulationThread(threading.Thread):
                                         td = table_v1.find_element(By.ID,"tr1_"+str(x))
                                         if table_v1.find_element(By.TAG_NAME,"a").text  == td.find_elements(By.TAG_NAME,"td")[2].text:
                                             table_v1_['Team'] ='(H) ' + table_v1.find_element(By.TAG_NAME,"a").text
+                                            #print(td.find_elements(By.TAG_NAME,"td")[3].text)
                                             AGH += int(td.find_elements(By.TAG_NAME,"td")[3].text[0])
                                         else:
                                             table_v1_['Team'] = table_v1.find_element(By.TAG_NAME,"a").text + ' (A)'
@@ -432,6 +520,7 @@ class SimulationThread(threading.Thread):
                                         table_v1_['Score'] = '1-1(0-0)'
                                         table_v1_['W/L'] = 'D'
 
+									#Updated by Wassim Karaouli
                                     try:
                                         table_v1_score_value0 = int(table_v1_['Score'][0])
                                         table_v1_score_value2 = int(table_v1_['Score'][2])
@@ -446,37 +535,64 @@ class SimulationThread(threading.Thread):
                                     goals_table.append(table_v1_score_value0 + table_v1_score_value2)
                                     
                                     if x == 5 and len(goals_table) == 5:
+                                        
+                                        #
                                         table_v1_['AGH'] = str(AGH/5) 
                                         t1_avg.append(total_goals_t1 /5)
                                         xx = (total_goals_t1 / 5) * float(data['Prob.Away'])
+                                        #print('rrrrrrr: ',total_goals_t1 / 5,data['Prob.Away'])
                                         table_v1_['Goal Cost Home'] = str(float(data['Prob.home']) / (total_goals_t1 / 5))
                                         table_v1_['Goal Value H'] = str(xx)
+                                        #print('Goal Vlaue H',xx)
                                     if x == 5 and len(goals_table) == 5:
                                         table_v1_["AVGH"] = str(total_goals_t1/5)
+                                        
+                                        #print('g table',goals_table)
+                                        # TASK 2'''
                                         
                                         op = 0.0
                                         for team_score_index in range(1,5):
                                             op = abs((goals_table[team_score_index])-(total_goals_t1/5))
+                                            #print('OP1: ',op)
                                             op = math.sqrt(op)
+                                            #print('OP2: ',op)
                                             op = op / 5
+                                            #print('OP3: ',op)
                                             sqr_goals_table.append(op)
+                                            
+
+                                        #print(sqr_goals_table)
                                         
                                         sd = sum(sqr_goals_table) /(total_goals_t1/5)
+                                        #print('sd: ',sd)
                                         GC_home.append(str(float(data['Prob.home']) / (total_goals_t1 / 5)))
                                         cv_home.append(str(sd/(total_goals_t1/5)))
                                         table_v1_["SD Home"] = str(sd)
                                         table_v1_["CV Home"] = str(sd/(total_goals_t1/5))
+                                        
+
+                                        
+                                    #print(table_v1_)
+                                    #print('sssssdddddddsssssssddddddd11111111111111111111')
                                     
                                     act_data.append(table_v1_.copy())
                                 except Exception as e:
                                     pass
+                                    #print(e)
                             
+                            #print(act_data)
                             table_v2 = porletP5.find_element(By.ID,"table_v2")
+                            #print("Team 2 : " + table_v2.find_element(By.TAG_NAME,"a").text)
                             table_v2_ = {'Team':'','Score':'','W/L':'','AVGH':'','AVGA':'','HGD':'','AGD':'','SD Home':'','SD Away':'','CV Home':'','CV Away':'','AGA':''}
+                            #ME
+                            #print('Total Goals Team 1: ',total_goals_t1)
                             total_goals_t2 = 0
                             goals_table2 = []
+                            
                             SD = 0
                             sqr_goals_table2 = []
+
+
                             home_goals = []
                             button = driver.find_element(By.ID, "cb_sos2")
                             button.click()
@@ -487,21 +603,28 @@ class SimulationThread(threading.Thread):
                                     z=z+1
                                 else:
                                     home_goals.append(td.find_elements(By.TAG_NAME,"td")[3].text)
-
+                                    #print('valeur: ',td.find_elements(By.TAG_NAME,"td")[3].text,y )
                             home_goals = home_goals[0:5]     
                             adx = 0
                             for elmt in home_goals:
                                 adx += int(elmt[2:3])
-
+                            
+                            print('adx',adx/5)
+                            #print('Away GOALS///',home_goals)
                             button.click()
-                            time.sleep(1)
+                            print('Away GOALS///',home_goals)
+                            time.sleep(2)
                             AGA = 0
                             for x in range(1,6):
                                 try:
                                     try:
                                         td = table_v2.find_element(By.ID,"tr2_"+str(x))
+                                        # print("Score : "+td.find_elements(By.TAG_NAME,"td")[3].text)
+                                        # print("W/L : "+td.find_elements(By.TAG_NAME,"td")[9].text)
                                         if table_v2.find_element(By.TAG_NAME,"a").text  == td.find_elements(By.TAG_NAME,"td")[2].text:
                                             table_v2_['Team'] ='(H) ' + table_v2.find_element(By.TAG_NAME,"a").text
+                                            #print(td.find_elements(By.TAG_NAME,"td")[3].text)
+                                            #print('--------------------------------')
                                             AGA += int(td.find_elements(By.TAG_NAME,"td")[3].text[0])
                                             
                                         else:
@@ -511,10 +634,12 @@ class SimulationThread(threading.Thread):
                                         table_v2_['Score'] =  td.find_elements(By.TAG_NAME,"td")[3].text
                                         table_v2_['W/L'] = td.find_elements(By.TAG_NAME,"td")[9].text
                                     except:
+                                         #print('||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||')
                                          table_v2_['Team'] = 'No'
                                          table_v2_['Score'] ='1-1(0-0)'
                                          table_v2_['W/L'] = 'D'
 
+                                    #Updated by Wassim Karaouli
                                     try:
                                          table_v2_score_value0 = int(table_v2_['Score'][0])
                                          table_v2_score_value2 = int(table_v2_['Score'][2])
@@ -532,38 +657,74 @@ class SimulationThread(threading.Thread):
                                         table_v2_['Goal Cost Away'] = str(float(data['Prob.Away']) / (total_goals_t2 / 5))
                                         xx = (total_goals_t2 / 5) * float(data['Prob.home'])
                                         t2_avg.append(total_goals_t2 / 5)
-                                        table_v2_['Goal Value A'] = str(xx)                                    
+                                        table_v2_['Goal Value A'] = str(xx)
+                                        print('Goal Vlaue A',xx)
+                                        #print('g table',goals_table2)
+                                    
 
                                     if x == 5 and len(goals_table2) == 5 :
                                         table_v2_['AGA'] = str(AGA/5) 
                                         table_v2_["AVGA"] = str(total_goals_t2/5)
+                                        #table_v2_["AGD"] = str(float(table_v2_['AGA']) - float(table_v1_['AGH']) * float(data["Prob.Away"])) 
                                         
                                         op = 0.0
                                         for team_score_index in range(1,5):
                                             op = abs((goals_table2[team_score_index])-(total_goals_t2/5))
+                                            #print('OP1: ',op)
                                             op = math.sqrt(op)
+                                           # print('OP2: ',op)
                                             op = op / 5
+                                           # print('OP3: ',op)
                                             sqr_goals_table2.append(op)
-                                                                                    
+                                            
+
+                                        #print(sqr_goals_table2)
+                                        
                                         sd = sum(sqr_goals_table2) /(total_goals_t2/5)
+                                       # print('sd: ',sd)
                                         GC_away.append(str(float(data['Prob.Away']) / (total_goals_t2 / 5)))
                                         cv_away.append(str(sd/(total_goals_t2/5)))
                                         table_v2_["SD Away"] = str(sd)
-                                        table_v2_["CV Away"] = str(sd/(total_goals_t2/5))                             
+                                        table_v2_["CV Away"] = str(sd/(total_goals_t2/5))
+                                        
+                                   # print(table_v2_)
+                                    #print('sssssdddddddsssssssddddddd')
+                                    #print(GC_away,cv_away)
+                                
+                                    
+                                    
                                     act_data.append(table_v2_.copy())
                                 except Exception as e:
                                     pass
+                                    #print(e)
+                            
+                            #ME
                             
                             last_mathces = []
                             for team_score_index in range(0,len(last_matches1),2):
                                 last_mathces.append([last_matches1[team_score_index],last_matches1[team_score_index+1]])     
+
+                            #print(last_mathces)
+                            #print("Total Golas Team 2: ",total_goals_t2,"odssss: ",str(1/value1))
+                            #print('***************************')
+                           # print(act_data)
+
+                           # print(table_v1_)
+                           # print("------------------")
+                           # print(table_v2_)
+                           # print("------------------")
                     except Exception as e:
+                        #print(e)
                         pass
             except Exception as e:
                 pass
+                #print(e)
             try:
+                # Create a Pandas DataFrame
                 df = pd.DataFrame(act_data)
-            
+                
+                
+                # Updated by Wassim Karaouli (Arrange columns and Rows)
                 new_sheet_order = ['Time', 'Date', 'League', 'Home','Away','GH','GA','AVGH', 'AVGA','AGH','AGA','HGD','AGD','Goal Value A', 'Goal Value H', 'Goal Cost Home', 'Goal Cost Away', 'CV Home','CV Away','Prob.home', 'Prob.Away','SD Home','SD Away','Early', 'SUM', 'Live','goal1', 'goal2', 'goal3', 'goal4', 'goal5', 'goal6', 'goal7', 'goal8', 'goal9', 'goal10', 'Over', 'STAKE POOL', 'Team', 'Score', 'W/L']
                 df = df.reindex(columns=new_sheet_order)
                 df['CV Home'] = df['CV Home'].shift(-5)
@@ -650,9 +811,9 @@ class SimulationThread(threading.Thread):
                 PROV_HOY = False
                 PROV_WHP = False
                 PROV_PAV = False
-                PROV_D1R = False
-                PROV_D77 = False
 
+
+                #print('||||||||||||||||||||||||||||')
                 for team_score_index in range(len(df['Goal Value H'])):
                     if isinstance(df['Goal Value H'][team_score_index],str) and df['Goal Value H'][team_score_index]!="" :
                         GVH.append(df['Goal Value H'][team_score_index])
@@ -706,7 +867,13 @@ class SimulationThread(threading.Thread):
                 ,SDA
                 
                 ]
-    
+                print('tttttttttttt',t)
+                """print(GCH[0][2:4])
+                for team_score_index in range(len(GCH)):
+                    if GCH[team_score_index][2:4] == GCA[team_score_index][2:4] == PH[team_score_index][2:4] == PA[team_score_index][2:4] == SDH[team_score_index][2:4] == SDA[team_score_index][2:4] == CVH[team_score_index][2:4] == CVA[team_score_index][2:4]:
+                        pass"""
+                
+
                 # Check if there is data
                 if not df.empty:
                     # Create a new workbook
@@ -715,16 +882,19 @@ class SimulationThread(threading.Thread):
 
                     # Append headers separately to ensure they are included
                     header_row = df.columns.tolist()
+                    #print('lisisisisisisi',header_row)
                     ws.append(header_row)
                     def find(b):
                         for i in range(len(b)):
                             b[i] = b[i][2:4]
+                        #print(b)
                         val = b[0]
                         x = b.count(val)
                         for i in range(1,len(b)):
                             if x < b.count(b[i]):
                                 val = b[i]
                                 x = b.count(val)
+                        #print(val,x)
                         indexes = []
                         indexes.append(val)
                         for i in range(len(b)):
@@ -738,14 +908,24 @@ class SimulationThread(threading.Thread):
                     try:
                         for team_score_index in range(len(t[0])):
                             for j in range(10):
+                                #print(t[j][i])
                                 aux_list.append(t[j][team_score_index])
 							
                             b = find(aux_list)
+                            print(b)
+							
+							#print('row nb: ',team_score_index+1,' data: ',find(aux_list))
+                            print('row nb: ',team_score_index+1,' data: ',find(aux_list))
+                            print('***********')
+						  
                             total_aux_list.append(list(b))
                             aux_list = []
                     except:
                         pass
+                    print('qqqqqqqqqqq')
+                    print(total_aux_list)
                     
+
                     # Append data rows
                     for r_idx, row in enumerate(df.itertuples(index=False), start=2):
                         ws.append(list(row))
@@ -780,6 +960,7 @@ class SimulationThread(threading.Thread):
                             HGD.append(cell.value)
                             i = 0
                             k = 0
+                        print("i: : : : : : : HGD",i,k)
                         if i == 11:
                             i = 0     
                     i = -1
@@ -799,9 +980,16 @@ class SimulationThread(threading.Thread):
                             i=0
                             k=0
 
+                        print("i: : : : : : : AGD",i,k)
                         if i == 11:
                             i = 0    
 
+                    """for team_score_index in range(len(df['HGD'])):
+                        if isinstance(df['HGD'][team_score_index],str) and df['HGD'][team_score_index]!="" :
+                            HGD.append(df['HGD'][team_score_index])
+                    for team_score_index in range(len(df['AGD'])):
+                        if isinstance(df['AGD'][team_score_index],str) and df['AGD'][team_score_index]!="" :
+                            AGD.append(df['AGD'][team_score_index])"""
                     ic(HGD)
                     ic(AGD)
 
@@ -810,6 +998,7 @@ class SimulationThread(threading.Thread):
                         for cell in row:
                             try:
                                 if cell.value is not None and  cell.value != 'Team' and  cell.value != 'Score' and cell.value != "W/L" and cell.value!="" and isinstance(cell.value,str):
+                                    print(cell.value,end='')
                                     rr+=1
                                     row_index +=1
                                     if cell.value[0] == "(":
@@ -819,29 +1008,62 @@ class SimulationThread(threading.Thread):
                                     else:    
                                         core += cell.value
                                 if rr %4 == 0:
+                                    print('')
                                     rr = 1
                                     per.append(core)
                                     core = ""
                                 if row_index == 30:
                                     raw_data.append(per)
+                                    #core = ""
                                     per = []
+                                    print('OOOOOOOOOOOOOO')
                                     row_index = 0
                             except:
                                 pass
+                            #print('error 1')
                     ic(raw_data)
+
+# Save 
+
+
+                    """for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=7, max_col=11):
+                        if row.value is not None and row.value != 'CV Home' and row.value != 'CV Away' and row.value !='' and isinstance(row.value,str) and '.' in row.value:
+                            goal_cost = float(row[0].value) + float(row[1].value)
+                            cv = float(row[2].value) + float(row[3].value)
+                            
+                            # Calculate the difference 
+                            diff = goal_cost - cv
+                            print('diff ========',diff)
+                            # Determine the sghading level based on the difference
+                            if diff <= -0.2:
+                                shade = '000000'  # Black
+                            elif diff <= -0.1:
+                                shade = '333333'  # Dark gray
+                            elif diff <= 0:
+                                shade = '666666'  # Gray
+                            elif diff <= 0.1:
+                                shade = '999999'  # Light gray
+                            else:
+                                shade = 'CCCCCC'  # Very light gray
+                            
+                            # Apply background color to the "Score" column
+                            row[4].fill = PatternFill(start_color=shade, end_color=shade, fill_type='solid')"""
 
                     kalb = []
                     tot1 = []
                     for team_score_index in range(min(len(GC_home), len(GC_away))):
                         tot1.append([GC_home[team_score_index],GC_away[team_score_index]])
+                    print('tototo',tot1)
                     tot2 = []
                     for team_score_index in range(min(len(GC_home), len(GC_away))):
                         tot2.append([cv_home[team_score_index],cv_away[team_score_index]])
+                    print('totooooo32',tot2)
                     asb = 0
                     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=20, max_col=20):
                         for cell in row:
                             try:
                                 if  cell.value is not None and  cell.value != 'Prob.home' and cell.value !='' and isinstance(cell.value,str) and '.' in cell.value:
+                                    print(cell.value)
                                     som1 = float(tot1[asb][0]) + float(tot1[asb][1])
                                     som2 = float(tot2[asb][0]) + float(tot2[asb][1])
                                     kalb.append(som1-som2)
@@ -887,19 +1109,25 @@ class SimulationThread(threading.Thread):
                                         font = Font(color='000000')  # Red color in hexadecimal notation
                                         cell.font = font
                             except:
-                                pass  
+                                pass
+                                #print('error2')    
 
                     indx = 0
                     las = -1
                     lez = 0
                     le = len(tot1)
+                    print(le)
                     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=16, max_col=17):
                         for cell in row:
                             try:
                                 if  cell.value is not None and cell.value != 'CV Home' and cell.value != 'CV Away' and cell.value !='' and isinstance(cell.value,str) and '.' in cell.value and cell.value != 'Goal Cost Home' and cell.value != 'Goal Cost Away':
+                                    print(cell.value)
                                     las += 1
+                                    print('lezz',lez)
                                     if cell.value in tot1[lez] :
+                                        
                                         som = float(tot1[lez][0]) + float(tot1[lez][1])
+                                        print('sommm: ',som)
                                         if  float(som) <=0.21:
                                             cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
                                             font = Font(color='4EEA10')  # Red color in hexadecimal notation
@@ -918,25 +1146,36 @@ class SimulationThread(threading.Thread):
                                             cell.font = font
                                         elif float(som) >0.81 and float(som) <= 1.7:
                                             cell.fill = PatternFill(start_color="E68508", end_color="E68508", fill_type="solid")
+                                            """font = Font(color='FF0000')  # Red color in hexadecimal notation
+                                            cell.font = font"""
                                         elif float(som) > 1.7 and float(som) <= 5.9:
                                             font = Font(color='D20103')  # Red color in hexadecimal notation
                                             cell.font = font
                                     if las == 1:
+                                        print('.............................................')
                                         las = -1
                                         lez += 1
                             except:
                                 pass
+                                #print('error3')
+                    
+
                     las = -1
                     lez = 0
                     le = len(tot2)
+                    print(le)
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=18, max_col=19):
                             for cell in row:
                                 try:
                                     if  cell.value is not None and cell.value != 'CV Home' and cell.value != 'CV Away' and cell.value !='' and isinstance(cell.value,str) and '.' in cell.value and cell.value != 'Goal Cost Home' and cell.value != 'Goal Cost Away':
+                                        print(cell.value)
                                         las += 1
+                                        print('lezz',lez)
                                         if cell.value in tot2[lez] :
+                                            
                                             som = float(tot2[lez][0]) + float(tot2[lez][1])
+                                            print('sommm: ',som)
                                             if  float(som) <=0.1199999:
                                                 cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
                                                 font = Font(color='4EEA10')  # Red color in hexadecimal notation
@@ -956,10 +1195,12 @@ class SimulationThread(threading.Thread):
                                             elif float(som) >0.9 and float(som) <= 2:
                                                 cell.fill = PatternFill(start_color="E68508", end_color="E68508", fill_type="solid")
                                         if las == 1:
+                                            print('.............................................')
                                             las = -1
                                             lez += 1
                                 except:
                                     pass
+                                    #print('error4')
                     except:
                         pass
                     new_avg = []
@@ -979,6 +1220,7 @@ class SimulationThread(threading.Thread):
                         res2 = []
                         try:
                             for i in range(len(t)):
+                                #print(t[i])
                                 for j in range(0,len(t[i]),2):
                                     if t[i][j] + t[i][j+1] == 0:
                                         res.append(True)
@@ -991,9 +1233,12 @@ class SimulationThread(threading.Thread):
                             pass
 
                         return res2
+                    '''res = null_to_null(t3)
+                    print(res,t3)'''
 
                     start_cell = 32
                     end_cell = 33
+                    print('TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT')
                     ic(t3)
                     rr = 1
                     row_index = 0
@@ -1004,19 +1249,29 @@ class SimulationThread(threading.Thread):
                         for cell in row:
                             try:
                                 if cell.value is not None and  cell.value != 'Score' and cell.value != "W/L" and cell.value!="" and isinstance(cell.value,str):
+                                    print(cell.value,end='')
                                     rr+=1
                                     row_index +=1
+                                    
                                     core += cell.value
                                 if rr %3 == 0:
+                                    print('')
                                     rr = 1
                                     per.append(core)
                                     core = ""
                                 if row_index == 20:
                                     results.append(per)
+                                    #core = ""
                                     per = []
+                                    print('OOOOOOOOOOOOOO')
                                     row_index = 0
                             except:
                                 pass
+                                #print('error5')
+                    print('')
+                    for team_score_index in range(len(results)):
+                        print(results[team_score_index])
+                    print('TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT')
 
                     def three_in_rowH(wl,t):
                         t = [row[:5] for row in t]
@@ -1028,6 +1283,7 @@ class SimulationThread(threading.Thread):
                             found = 0
                             for j in range(len(t[i])-2):         
                                 if t[i][j][-1] == wl and t[i][j+1][-1] == wl and t[i][j+2][-1] == wl :
+                                    print(t[i][j],t[i][j+1],t[i][j+2])
                                     found = 1
                             if found == 1:
                                 data.append(True)
@@ -1038,20 +1294,29 @@ class SimulationThread(threading.Thread):
                     checkW = three_in_rowH("W",results)
                     checkD = three_in_rowH("D",results)
                     checkL = three_in_rowH("L",results)
+                    #print("GH", checkW)
+                    #print("GH",checkD)
+                    #print("GH",checkL)
                     rw = -1
                     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=6, max_col=6):
+                        
                         for cell in row:
                             try:
                                 if cell.value is not None and  cell.value != 'GH' and cell.value!="" and isinstance(cell.value,str):
                                     rw += 1
+                                    print(cell.value)
                                     if checkW[rw] == True:
+                                        #print('GREEN')
                                         cell.fill = PatternFill(start_color="5BFA1C", end_color="5BFA1C", fill_type="solid")
                                     if checkD[rw] == True:
+                                        #print('Yellow')
                                         cell.fill = PatternFill(start_color="FDF10B", end_color="FDF10B", fill_type="solid")
-                                    if checkL[rw] == True and PH[rw]<=PA[rw]:
+                                    if checkL[rw] == True and PH[rw]<=PA[rw]: #and PH[rw]<=PA[rw]:
+                                        #print('Red')
                                         cell.fill = PatternFill(start_color="FD0B0B", end_color="FD0B0B", fill_type="solid")
                             except:
-                                pass        
+                                pass
+                                #print('error6')            
                     def three_in_rowA(wl,t):
                         found = 0
                         data =[]
@@ -1062,6 +1327,7 @@ class SimulationThread(threading.Thread):
                             found = 0
                             for j in range(len(t[i])-2):         
                                 if t[i][j][-1] == wl and t[i][j+1][-1] == wl and t[i][j+2][-1] == wl :
+                                    print(t[i][j],t[i][j+1],t[i][j+2])
                                     found = 1
                             if found == 1:
                                 data.append(True)
@@ -1072,21 +1338,30 @@ class SimulationThread(threading.Thread):
                     checkW = three_in_rowA("W",results)
                     checkD = three_in_rowA("D",results)
                     checkL = three_in_rowA("L",results)
+                    #print("GA", checkW)
+                    #print("GA", checkD)
+                    #print("GA", checkL)
                     rw = -1
                     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=7, max_col=7):
+                        
                         for cell in row:
                             try:
                                 if cell.value is not None and  cell.value != 'GA' and cell.value!="" and isinstance(cell.value,str):
                                     rw += 1
+                                    print(cell.value)
                                     if checkW[rw] == True:
+                                        #print('GREEN')
                                         cell.fill = PatternFill(start_color="5BFA1C", end_color="5BFA1C", fill_type="solid")
                                     if checkD[rw] == True:
+                                        #print('Yellow')
                                         cell.fill = PatternFill(start_color="FDF10B", end_color="FDF10B", fill_type="solid")
-                                    if checkL[rw] == True and PH[rw]>=PA[rw]:
+                                    if checkL[rw] == True and PH[rw]>=PA[rw]: #and PH[rw]>=PA[rw]
+                                        #print('Red')
                                         cell.fill = PatternFill(start_color="FD0B0B", end_color="FD0B0B", fill_type="solid")
                             except:
-                                pass 
-                    print("Verifying data...")
+                                pass
+                                #print('error7')     
+                    print("Verifying dataaa ???/£...//")
                     home =[row[0:5] for row in raw_data]
                     away =[row[5:] for row in raw_data]      
                     ic(home)
@@ -1111,31 +1386,46 @@ class SimulationThread(threading.Thread):
                         for elem in home:
                             found = False
                             for i in range(len(elem)):
+                                
                                 if i == 2 and elem[i][1] == '2' and elem[i][3] == '2':
                                     found = True
+                                    print("found 2x2")
                                 elif i == 2 and elem[i][1] == '3' and elem[i][3] == '3':
                                     found = True
+                                    print("found 3x3")
                             if found:
                                 resH.append(True)
+                                print('set T')
                             else:
                                 resH.append(False)
+                                print("set F")
+                            print('***')
                         found = False
                         resA = []
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
+                                
                                 if i == 2 and elem[i][1] == '2' and elem[i][3] == '2':
                                     found = True
+                                    print("found 2x2")
                                 elif i == 2 and elem[i][1] == '3' and elem[i][3] == '3':
                                     found = True
+                                    print("found 3x3")
                             if found:
                                 resA.append(True)
+                                print('set T')
                             else:
                                 resA.append(False)
-                                
+                                print("set F")
+                            print('***')
+
+
                         return resH, resA
                     font
                     resH, resA = new_task1(home,away)
+                    print('D3RD Function Done')
+                    ################################################################ D3rd (Modified) ##########################################################################
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=6, max_col=6):
@@ -1170,6 +1460,7 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
 
+                    #Modified by HK
                     ################################################################ D5th (Modified) ##########################################################################
                     def new_task_update_1(home,away):
                         found = False
@@ -1180,25 +1471,36 @@ class SimulationThread(threading.Thread):
                                 
                                 if i == 4 and elem[i][1] == '2' and elem[i][3] == '2':
                                     found = True
+                                    print("found 2x2")
                                 elif i == 4 and elem[i][1] == '3' and elem[i][3] == '3':
                                     found = True
+                                    print("found 3x3")
                             if found:
                                 resH.append(True)
+                                print('set T')
                             else:
                                 resH.append(False)
+                                print("set F")
+                            print('***')
                         found = False
                         resA = []
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
+                                
                                 if i == 4 and elem[i][1] == '2' and elem[i][3] == '2':
                                     found = True
+                                    print("found 2x2")
                                 elif i == 4 and elem[i][1] == '3' and elem[i][3] == '3':
                                     found = True
+                                    print("found 3x3")
                             if found:
                                 resA.append(True)
+                                print('set T')
                             else:
                                 resA.append(False)
+                                print("set F")
+                            print('***')
 
                         return resH, resA
                     font
@@ -1206,210 +1508,184 @@ class SimulationThread(threading.Thread):
 
                     i = -1
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=1):
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=6, max_col=6):
                             for cell in row:
-                                if cell.value is not None and cell.value!="" and cell.value!="Time" and isinstance(cell.value,str):
+                                if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
                                     i+= 1
                                     if resH[i] == True:
-                                        cell.fill = PatternFill(start_color="92CDDC", end_color="92CDDC", fill_type="solid")
+                                        font = Font(color='#92CDDC',name='Arial Narrow', size=11, bold=True, italic=True)
+                                        cell.font = font
                                         PROV_D5TH = True
                     except:
                         pass
                     ################################################################ HDN (Modified) ##########################################################################
-                    def new_task_update_2(home, away):
+                    def new_task_update_2(home,away):
+                        found = False
                         resH = []
-                        resA = []
-                        # Verifica a lista "home"
                         for elem in home:
                             found = False
                             for i in range(len(elem)):
                                 
-                                if i == 4:
-                                    if (elem[i][1] == '0' and elem[i][3] == '0') or (elem[i][1] == '1' and elem[i][3] == '1'):
-                                        found = True
-                            resH.append(found)
-
-                        # Verifica a lista "away"
+                                if i == 4 and elem[i][1] == '0' and elem[i][3] == '0':
+                                    found = True
+                                    print("found 0x0")
+                                elif i == 4 and elem[i][1] == '1' and elem[i][3] == '1':
+                                    found = True
+                                    print("found 1x1")
+                            if found:
+                                resH.append(True)
+                                print('set T')
+                            else:
+                                resH.append(False)
+                                print("set F")
+                            print('***')
+                        found = False
+                        resA = []
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
-                                if i == 4:
-                                    if (elem[i][1] == '0' and elem[i][3] == '0') or (elem[i][1] == '1' and elem[i][3] == '1'):
-                                        found = True
-                            resA.append(found)
+                                
+                                if i == 4 and elem[i][1] == '0' and elem[i][3] == '0':
+                                    found = True
+                                    print("found 0x0")
+                                elif i == 4 and elem[i][1] == '1' and elem[i][3] == '1':
+                                    found = True
+                                    print("found 1x1")
+                            if found:
+                                resA.append(True)
+                                print('set T')
+                            else:
+                                resA.append(False)
+                                print("set F")
+                            print('***')
 
                         return resH, resA
-                    resH, resA = new_task_update_2(home, away)
+                    font
+                    resH, resA = new_task_update_2(home,away)
 
                     i = -1
-
-                    odds: list = []
-                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=24, max_col=24):
-                        for cell in row:
-                            if cell.value is not None and cell.value != "" and cell.value != "Early" and isinstance(cell.value, str):
-                                odds.append(cell.value)
-
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=9, max_col=9):
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
                             for cell in row:
-                                if cell.value is not None and cell.value != "" and cell.value != "AVGA" and isinstance(cell.value, str):
-                                    i += 1
-                                    if i < len(resH) and resH[i] == True:
-                                        if (float(odds[i].split('/')[0].strip()) >= float(odds[i].split('/')[2].strip())):
-                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                        else:
-                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                    elif i < len(resA) and resA[i] == True:
-                                        if (float(odds[i].split('/')[0].strip()) <= float(odds[i].split('/')[2].strip())):
-                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                        else:
-                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                    elif((i < len(resA) and resA[i] == True) and (i < len(resH) and resH[i] == True)):
-                                        if (float(odds[i].split('/')[0].strip()) >= float(odds[i].split('/')[2].strip())):
-                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                        else:
-                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                    elif i < len(resA) and resA[i] == True:
-                                        if (float(odds[i].split('/')[0].strip()) <= float(odds[i].split('/')[2].strip())):
-                                            font = Font(color='FF0000FF', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                                        else:
-                                            font = Font(color='FFFACA00', name='Arial Narrow', size=11, bold=True, italic=True)
-                                            cell.font = font
-                                            PROV_HDN = True
-                    except Exception as e:
-                        print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
-                    
-                   ################################################################ DIR (Modified) ##########################################################################
+                                if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
+                                    i+= 1
+                                    if resH[i] == True:
+                                        font = Font(color='#FACA00',name='Arial Narrow', size=11, bold=True, italic=True)
+                                        cell.font = font
+                                        PROV_HDN = True
+                    except:
+                        pass
+                    #===================================================================================================
+
+                    ################################################################ DIR (Modified) ##########################################################################
                     def new_task_update_3(home,away):
+                        found = False
                         resH = []
-                        resA = []
-                        # Verifica a lista "home"
                         for elem in home:
                             found = False
                             for i in range(len(elem)):
                                 
-                                if i == 0 and ('W' == elem[i][-1] or 'D' == elem[i][-1] or 'w' == elem[i][-1] or 'd' == elem[i][-1]):
-                                    if (f'{elem[i][1]}-{elem[i][3]}' in ['2-2', '3-3', '2-3', '1-3', '2-4', '0-4', '1-4', '3-4', '1-5', '0-5', '2-5', '3-5']):
-                                        found = True
-                            resH.append(found)  # Adiciona True ou False para cada elemento
-
-                        # Verifica a lista "away"
+                                if i == (len(elem) - 1) and elem[i][1] == '2' and elem[i][3] == '2':
+                                    found = True
+                                    print("found 2x2")
+                                elif i == (len(elem) - 1) and elem[i][1] == '3' and elem[i][3] == '3':
+                                    found = True
+                                    print("found 3x3")
+                                elif i == (len(elem) - 1) and (elem[i][1] == '4' or elem[i][3] == '5'):
+                                    found = True
+                            if found:
+                                resH.append(True)
+                                print('set T')
+                            else:
+                                resH.append(False)
+                                print("set F")
+                            print('***')
+                        found = False
+                        resA = []
                         for elem in away:
                             found = False
                             for i in range(len(elem)):
-                                # Verifica as condições no índice 4
-                                if i == 0 and ('W' == elem[i][-1] or 'D' == elem[i][-1] or 'w' == elem[i][-1] or 'd' == elem[i][-1]):
-                                    if (f'{elem[i][1]}-{elem[i][3]}' in ['2-2', '3-3', '3-1', '3-2', '4-0', '4-1', '4-2', '4-3', '5-0', '5-1', '5-2', '5-3']):
-                                        found = True
-                            resA.append(found)  # Adiciona True ou False para cada elemento
+                                
+                                if i == (len(elem) - 1) and elem[i][1] == '2' and elem[i][3] == '2':
+                                    found = True
+                                    print("found 2x2")
+                                elif i == (len(elem) - 1) and elem[i][1] == '3' and elem[i][3] == '3':
+                                    found = True
+                                    print("found 3x3")
+                                elif i == (len(elem) - 1) and (elem[i][1] == '4' or elem[i][3] == '5'):
+                                    found = True
+                            if found:
+                                resA.append(True)
+                                print('set T')
+                            else:
+                                resA.append(False)
+                                print("set F")
+                            print('***')
 
                         return resH, resA
-                    resH, resA = new_task_update_3(home, away)
+                    font
+                    resH, resA = new_task_update_3(home,away)
 
-                    i = -1  # Inicializa o índice
-
+                    i = -1
                     try:
-                        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=8, max_col=8):  # Itera na coluna 9
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
                             for cell in row:
-                                # Verifica se a célula contém um valor válido
-                                if cell.value is not None and cell.value != "" and cell.value != "AVGH" and isinstance(cell.value, str):
-                                    i += 1
-                                    if i < len(resH) and resH[i] == True:
-                                        font = Font(color='FFFFFF00', name='Arial Narrow', size=11, bold=True, italic=True)
+                                if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
+                                    i+= 1
+                                    if resH[i] == True:
+                                        font = Font(color='#FFFF00',name='Arial Narrow', size=11, bold=True, italic=True)
                                         cell.font = font
-                                        PROV_D1R = True
-                                    elif i < len(resA) and resA[i] == True:
-                                        font = Font(color='FFFFFF00', name='Arial Narrow', size=11, bold=True, italic=True)
-                                        cell.font = font
-                                        PROV_D1R = True
-                    except Exception as e:
-                        print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
+                    except:
+                        pass
+                    #===================================================================================================
+
                     ################################################################ DIR (Modified) ##########################################################################
-                    def new_task_update_4(home, away):
+                    def new_task_update_4(home,away):
                         found = False
-                        lis_color = [[], []]  # Lista de cores separada para home e away
-                        resH = []  # Resultado para a lista "home"
-                        resA = []  # Resultado para a lista "away"
+                        resH = []
+                        for elem in home:
+                            found = False
+                            for i in range(len(elem)):
+                                if i == 4 and (elem[i][1] == '4' or elem[i][3] == '5'):
+                                    found = True
+                            if found:
+                                resH.append(True)
+                                print('set T')
+                            else:
+                                resH.append(False)
+                                print("set F")
+                            print('***')
+                        found = False
+                        resA = []
+                        for elem in away:
+                            found = False
+                            for i in range(len(elem)):
+                                if i == 4 and (elem[i][1] == '4' or elem[i][3] == '5'):
+                                    found = True
+                            if found:
+                                resA.append(True)
+                                print('set T')
+                            else:
+                                resA.append(False)
+                                print("set F")
+                            print('***')
 
-                        # Verifica a lista "home"
-                        try:
-                            for elem in home:
-                                found = False
-                                for i in range(len(elem)):
-                                    if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
-                                        found = True
-                                        if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
-                                            lis_color[0].append('FF0000FF')  # Azul
-                                        elif elem[i][-1].upper() == 'L':
-                                            lis_color[0].append('FFFF0000')  # Vermelho
-                                resH.append(found)
+                        return resH, resA
+                    font
+                    resH, resA = new_task_update_4(home,away)
 
-                            # Verifica a lista "away"
-                            for elem in away:
-                                found = False
-                                for i in range(len(elem)):
-                                    if i == 4 and (int(elem[i][1]) + int(elem[i][3])) >= 5:
-                                        found = True
-                                        if elem[i][-1].upper() == 'W' or elem[i][-1].upper() == 'D':
-                                            lis_color[1].append('FF0000FF')  # Azul
-                                        elif elem[i][-1].upper() == 'L':
-                                            lis_color[1].append('FFFF0000')  # Vermelho
-                                resA.append(found)
-                        except:
-                            pass
-
-                        return resH, resA, lis_color
-
-
-                    # Obtém os resultados e as cores
-                    resH, resA, color_d77 = new_task_update_4(home, away)
-
-                    indexH = -1
-                    indexA = -1 
-                    i = -1  # Índice global para as linhas da planilha
-
+                    i = -1
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=3, max_col=3):  # Apenas coluna 3
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=2, max_col=2):
                             for cell in row:
-                                # Verifica se a célula contém um valor válido
-                                if cell.value is not None and cell.value != "" and cell.value != "League" and isinstance(cell.value, str):
-                                    i += 1
-                                    if i < len(resH) and resH[i] == True:
-                                        indexH += 1  # Incrementa o índice para color_d77[0]
-                                        border_color = Border(
-                                            left=Side(border_style='thick', color=color_d77[0][indexH]),
-                                            right=Side(border_style='thick', color=color_d77[0][indexH]),
-                                            top=Side(border_style='thick', color=color_d77[0][indexH]),
-                                            bottom=Side(border_style='thick', color=color_d77[0][indexH]),
-                                        )
-                                        cell.border = border_color  # Aplica borda
-                                        PROV_D77 = True
-                                    elif i < len(resA) and resA[i] == True:
-                                        indexA += 1  # Incrementa o índice para color_d77[1]
-                                        border_color = Border(
-                                            left=Side(border_style='thick', color=color_d77[1][indexA]),
-                                            right=Side(border_style='thick', color=color_d77[1][indexA]),
-                                            top=Side(border_style='thick', color=color_d77[1][indexA]),
-                                            bottom=Side(border_style='thick', color=color_d77[1][indexA]),
-                                        )
-                                        cell.border = border_color  # Aplica borda
-                                        PROV_D77 = True
-                    except Exception as e:
-                        print(f"Erro ao processar a planilha na célula {cell.coordinate}: {e}")
+                                if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
+                                    i+= 1
+                                    if resH[i] == True:
+                                        cell.border = color111
+                    except:
+                        pass
+                    #=============================================================================
+
                     ################################################################ DIR (Modified) ##########################################################################
                     def new_task_update_5(home,away):
                         found = False
@@ -1421,8 +1697,11 @@ class SimulationThread(threading.Thread):
                                     found = True
                             if found:
                                 resH.append(True)
+                                print('set T')
                             else:
                                 resH.append(False)
+                                print("set F")
+                            print('***')
                         found = False
                         resA = []
                         for elem in away:
@@ -1432,8 +1711,11 @@ class SimulationThread(threading.Thread):
                                     found = True
                             if found:
                                 resA.append(True)
+                                print('set T')
                             else:
                                 resA.append(False)
+                                print("set F")
+                            print('***')
 
                         return resH, resA
                     font
@@ -1441,7 +1723,7 @@ class SimulationThread(threading.Thread):
 
                     i = -1
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=3, max_col=3):
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=2, max_col=2):
                             for cell in row:
                                 if cell.value is not None and cell.value!="" and isinstance(cell.value,str):
                                     i+= 1
@@ -1449,6 +1731,7 @@ class SimulationThread(threading.Thread):
                                         cell.border = color111
                     except:
                         pass
+                    #=============================================================================
 
                     def new_task2(home,away):
                         found = False
@@ -1459,12 +1742,17 @@ class SimulationThread(threading.Thread):
                                 
                                 if i == 4 and elem[i][1] == '2' and elem[i][3] == '2':
                                     found = True
+                                    print("found 2x2")
                                 elif i == 4 and elem[i][1] == '3' and elem[i][3] == '3':
                                     found = True
+                                    print("found 3x3")
                             if found:
                                 resH.append(True)
+                                print('set T')
                             else:
                                 resH.append(False)
+                                print("set F")
+                            print('***')
                         found = False
                         resA = []
                         for elem in away:
@@ -1473,16 +1761,25 @@ class SimulationThread(threading.Thread):
                                 
                                 if i == 4 and elem[i][1] == '2' and elem[i][3] == '2':
                                     found = True
+                                    print("found 2x2")
                                 elif i == 4 and elem[i][1] == '3' and elem[i][3] == '3':
                                     found = True
+                                    print("found 3x3")
                             if found:
                                 resA.append(True)
+                                print('set T')
                             else:
                                 resA.append(False)
+                                print("set F")
+                            print('***')
+
 
                         return resH, resA
+                        
+                    
                     ################################################################ NEW TASK 2 ##########################################################################
                     resHH, resAA = new_task2(home,away)
+                    print('RES    AAAAAA')
                     ic(resHH)
                     ic(resAA)
                     i = -1
@@ -1498,6 +1795,7 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
 
+                    print("New Task2 Started Successfully 1 ")
                     ################################# ECC ###########################
                     ECC = []
                     i = -1 
@@ -1523,7 +1821,7 @@ class SimulationThread(threading.Thread):
                                     isnegative = False
                     except:
                         pass
-
+                    print("CV HGD task Done Successfully 1 ")
                     i = -1 
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=13, max_col=13):
@@ -1545,9 +1843,11 @@ class SimulationThread(threading.Thread):
                                     isnegative = False
                     except:
                         pass
+                    print("CV HGD task Done Successfully 2 ")
 
                     ################################################################ Zoya ##########################################################################
                     ZOYA = []
+                    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ ZOYA @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@à")
                     ZOYAF_09 = []
                     Pink_Zoya = []
                     i = -1
@@ -1592,6 +1892,7 @@ class SimulationThread(threading.Thread):
                                         ZOYA.append(True)
                                         ZOYAF_09.append(True)
                                         Pink_Zoya.append(False)
+                                        ### NEW ZAYA ###
                                     elif float(AGD[i]) == 0  and float(PH[i]) > float(PA[i]) and float(AVGH[i]) < float(AVGA[i]) and float(SDH[i]) > float(SDA[i]):
                                         ZOYA.append(True)
                                         ZOYAF_09.append(False)
@@ -1612,6 +1913,7 @@ class SimulationThread(threading.Thread):
                                         ZOYA.append(True)
                                         ZOYAF_09.append(True)
                                         Pink_Zoya.append(False)
+                                        
                                     elif  float(AVGH[i]) >= float(AVGA[i]) and float(AGH[i]) > float(AGA[i]) and  float(SDH[i]) > float(SDA[i]) and (float(SDH[i])+float(SDA[i])) <= 0.71 :
                                         cell.fill = PatternFill(start_color="00B0F0", end_color="00B0F0", fill_type="solid")
                                         ZOYA.append(True)
@@ -1625,6 +1927,9 @@ class SimulationThread(threading.Thread):
                         pass 
 
                     ZOYA2 = []
+                    print(ZOYA)
+                    print(ZOYAF_09)
+                    print("seccond")
                     Pink_Zoya2 = []
                     i = -1      
                     try:
@@ -1667,6 +1972,7 @@ class SimulationThread(threading.Thread):
                                         ZOYA2.append(True)
                                         ZOYAF_09[i] = True
                                         Pink_Zoya2.append(False)
+                                    ### NEW ZAYA ###
                                     elif float(AGD[i]) == 0  and float(PH[i]) < float(PA[i]) and float(AVGH[i]) > float(AVGA[i]) and float(SDH[i]) < float(SDA[i]) and (float(SDH[i])+float(SDA[i])) <= 0.81:
                                         cell.fill = PatternFill(start_color="CCFF66", end_color="CCFF66", fill_type="solid")
                                         ZOYA2.append(True)
@@ -1695,9 +2001,17 @@ class SimulationThread(threading.Thread):
                                     else:
                                         Pink_Zoya2.append(False)
                                         ZOYA2.append(False)
+                                        """if ZOYAF_09[i] != True:
+                                            ZOYAF_09[i] = False"""
                     except:
-                        pass   
-                    #GH
+                        pass 
+                    print('new function')       
+                    GH
+                    """for i in range (len(ZOYA)):
+                        if ZOYA[i] == False and ZOYA2[i] == False:
+                            ZOYA[i] = True"""
+
+                        
                     home =[row[0:5] for row in raw_data]
                     away =[row[5:] for row in raw_data]      
                     ic(home)
@@ -1717,7 +2031,10 @@ class SimulationThread(threading.Thread):
                                 if home[i][j][0] == "A":
                                     home_away.append(home[i][j])
                                     break
+                        print("HOME_TEAM")
+                        print(home_home,home_away)
                         if len(home_home) == len(home_away):
+                            ##############
                             away_home = []
                             away_away = []
 
@@ -1737,6 +2054,10 @@ class SimulationThread(threading.Thread):
                                     data.append([home_home[i],home_away[i],away_home[i],away_away[i]])
                             else:
                                 return None
+
+                            print("AWAY_TEAM")
+                            print(away_home,away_away)
+                            print(data)
                             
                             res = []
                             for i in  range (len(data)):
@@ -1749,6 +2070,7 @@ class SimulationThread(threading.Thread):
                                     x +=3
                                 elif data[i][3][-1] == "D" and data[i][3][1] == "0" and data[i][3][3] == "0":
                                     x +=4
+                                print(x,i)
                                 if x == 1 :
                                     res.append([True,False])
                                 elif x == 2:
@@ -1761,11 +2083,13 @@ class SimulationThread(threading.Thread):
                                     res.append([True,True])
                                 else:
                                     res.append([False,False])
+                            print(data)
                             return res
                         else:
                             return None
                     res = new_null_to_null(home,away)
                     ic(res)
+                    print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
                     ic(home)
                     ic(away)
                     ################################################################ LN-7 TASK ##############################################
@@ -1780,12 +2104,14 @@ class SimulationThread(threading.Thread):
                                     some += int(row[i][1]) + int(row[i][3])
                                 elif row[i][-1] == 'L' and row[i][1:4] in yes:
                                     some = 7
+                            #print(some)
                             if some >= 7:
                                 resH.append(True)
                             else:
                                 resH.append(False)
+                        #print(resH)
 
-                        ################## AWAY ###############
+                        ################## AWAY
                         resA = []
                         for row in away:
                             some = 0
@@ -1794,14 +2120,17 @@ class SimulationThread(threading.Thread):
                                     some += int(row[i][1]) + int(row[i][3])
                                 elif row[i][-1] == 'L' and row[i][1:4] in yes:
                                     some = 7
+                            #print(some)
                             if some >= 7:
                                 resA.append(True)
                             else:
                                 resA.append(False)
+                        #print(resA)
                         return resH,resA
 
+                                    
                     Res_Home, Res_Away = LN_7(home,away)
-
+                    
                     thick_red_border = Border(left=Side(border_style='thick', color='FF0000'),
                           right=Side(border_style='thick', color='FF0000'),
                           top=Side(border_style='thick', color='FF0000'),
@@ -1855,7 +2184,7 @@ class SimulationThread(threading.Thread):
                           top=Side(border_style='thick', color='0000FF'),
                           bottom=Side(border_style='thick', color='0000FF'))
                     SCA_Check = False
-                    
+                    print(Res_Home,Res_Away)
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=10, max_col=10):
@@ -1878,6 +2207,7 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
                                         
+                    print('home done')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=11, max_col=11):
@@ -1898,28 +2228,40 @@ class SimulationThread(threading.Thread):
                                             elif PH[i] >= PA[i] and AVGH[i] <= AVGA[i] and AGH[i] > AGA[i]:
                                                 cell.fill = PatternFill(start_color="B1A0C7", end_color="B1A0C7", fill_type="solid")
                     except:
-                        pass                  
+                        pass                   
+
+                    print('away done')
 
                     ########################################## LTN-1ST HOME-TEAM(A) AWAY-TEAM(A) ######################################
+                    
                     def LTN_1ST(home,away,H,A):
                         resH = []
                         count = 0
                         for row in (home):
+                            
                             for i in range (len(row)):
+                                
                                 if row[i][0] == H and row[i][-1] == "L" and (row[i][3] == "0" or row[i][1] == "0") and count == 0:
                                     resH.append(True)
+                                    print(row[i])
                                     count =+1
+                                    
                                     break
                                 elif row[i][0] != H:
                                     if i == 4:
                                         resH.append(False)
+                                        
                                         break
                                     else:
+                                        
                                         continue
-                                else:
+
+                                else :
+                                    
                                     resH.append(False)
                                     break
                         
+                        print("away now")
                         resA = []
                         count = 0
                         for row in (away):
@@ -1928,15 +2270,19 @@ class SimulationThread(threading.Thread):
                                 if row[i][0] == A and row[i][-1] == "L" and (row[i][3] == "0" or row[i][1] == "0") and count ==0:
                                     count += 1
                                     resA.append(True)
+                                
                                     break
                                 elif row[i][0] != A:
                                     if i == 4:
                                         resA.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else :
                                     resA.append(False)
+                                
                                     break
                         
                         Final_res = []
@@ -1966,6 +2312,8 @@ class SimulationThread(threading.Thread):
                     except:
                         pass               
 
+                    
+
                     ############################################ CW ####################################################
                     def CW(home,away):
                         no = ["1-0","0-1","1-1","0-2","2-0","0-0"]
@@ -1974,34 +2322,42 @@ class SimulationThread(threading.Thread):
                             for i in range (len(row)):
                                 if row[i][0] == 'A' and  row[i][1:4] not in no:
                                     resH.append(True)
+                                    print(row[i][1:4])
                                     break
                                 elif row[i][0] != 'A':
                                     if i == 4:
                                         resH.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else:
                                     resH.append(False)
                                     break
 
                         resA = []
+                        print("away CW")
                         no = ["1-0","0-1","1-1","0-2","2-0","0-0"]
                         for row in (away):
                             for i in range (len(row)):
                                 if row[i][0] == 'H' and  row[i][1:4] not in no:
                                     resA.append(True)
+                                    print(row[i][1:4])
                                     break
                                 elif row[i][0] != 'H':
                                     if i == 4:
                                         resA.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else:
                                     resA.append(False)
                                     break
 
+                        
                         return  resH,resA
 
                     rH, rA = CW(home,away)
@@ -2024,6 +2380,7 @@ class SimulationThread(threading.Thread):
                         pass                
                
                     ########################################### DBT TASK ####################################                
+                    print('############################### DBT @@@@@@@@@@@@@@@@@@@@@@@@@@@@@ ')
                     def DBT(home,away,H,A):
                         yes = ['0-0','1-1']
                         resH = []
@@ -2031,12 +2388,15 @@ class SimulationThread(threading.Thread):
                             for i in range (len(row)):
                                 if row[i][0] == H and row[i][-1] == "D" and row[i][1:4] in yes:
                                     resH.append(True)
+                                    print('lastH: ',row[i],i)
                                     break
                                 elif row[i][0] != H:
                                     if i == 4:
                                         resH.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else :
                                     resH.append(False)
@@ -2047,16 +2407,21 @@ class SimulationThread(threading.Thread):
                             for i in range (len(row)):
                                 if row[i][0] == A and row[i][-1] == "D" and row[i][1:4] in yes:
                                     resA.append(True)
+                                    print('lastA: ',row[i],i)
                                     break
                                 elif row[i][0] != A:
                                     if i == 4:
                                         resA.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else:
                                     resA.append(False)
                                     break
+                        print(resH)
+                        print(resA)
                         Final_res = []
                         for i in range(len(resA)):
                             if resA[i] == True and resH[i] == True:
@@ -2068,6 +2433,10 @@ class SimulationThread(threading.Thread):
                     resDBT = DBT(home,away,"H",'H')
                     resDBT2 = DBT(home,away,"H",'A')
                     resDBT3 = DBT(home,away,"A",'H')
+                    print('DBT Done correctly')
+                    print(resDBT)
+                    print(resDBT2)
+                    print(resDBT3)
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=4):
@@ -2081,10 +2450,12 @@ class SimulationThread(threading.Thread):
                                     if resDBT3[i] == True:
                                         cell.border = color6
                                     PROV_DBT = True
+
                     except:
                         pass
 
                     ################################################ BK TASK ####################################
+
                     def BK(home,away,H,A):
                         yes = ["1-0","2-0","3-0","4-0","0-1","0-2","0-3","0-4"]
                         resH = []
@@ -2092,12 +2463,15 @@ class SimulationThread(threading.Thread):
                             for i in range (len(row)):
                                 if row[i][0] == H and row[i][-1] == "W" and row[i][1:4] in yes:
                                     resH.append(True)
+                                    print(row[i],i)
                                     break
                                 elif row[i][0] != H:
                                     if i == 4:
                                         resH.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else:
                                     resH.append(False)
@@ -2112,12 +2486,16 @@ class SimulationThread(threading.Thread):
                                 elif row[i][0] != A:
                                     if i == 4:
                                         resA.append(False)
+                                    
                                         break
                                     else:
+                                    
                                         continue
                                 else:
                                     resA.append(False)
                                     break
+                        print(resH)
+                        print(resA)
                         Final_res = []
                         for i in range(len(resA)):
                             if resA[i] == True and resH[i] == True:
@@ -2130,6 +2508,7 @@ class SimulationThread(threading.Thread):
                     BKres2 = BK(home,away,"A",'H')
                     BKres3 = BK(home,away,"H",'H')
                     BKres4 = BK(home,away,"H",'A')
+                    print("BK Done Successfully")
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=9, max_col=9):
@@ -2140,19 +2519,17 @@ class SimulationThread(threading.Thread):
                                         cell.border = color7
                                     if BKres2[i] == True:
                                         cell.border = color8
+                        i = -1
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
+                            for cell in row:
+                                if cell.value is not None and  cell.value != 'AVGH' and cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if BKres[i] == True:
+                                        cell.border = color9
+                                    if BKres2[i] == True:
+                                        cell.border = color10
                     except:
                         pass
-
-                    i = -1
-                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
-                        for cell in row:
-                            if cell.value is not None and  cell.value != 'AVGH' and cell.value !='' and isinstance(cell.value,str) :
-                                i += 1
-                                if BKres[i] == True:
-                                    cell.border = color9
-                                if BKres2[i] == True:
-                                    cell.border = color10
-                    
                     ################################################ 3NR  NEED TO BE FIXED Prob is missing ####################################
                     def Three_NR(home,away):
                         resH = []
@@ -2183,7 +2560,9 @@ class SimulationThread(threading.Thread):
                                 resA.append(False)
 
                         return resH,resA
+                    print('3NR Function')
                     TNRH, TNRA =Three_NR(home,away)
+                    print('3NR coloring')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=6, max_col=6):
@@ -2192,10 +2571,6 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     if TNRH[i] == True and PH[i] > PA[i]:
                                         cell.fill = PatternFill(start_color="FF00FF", end_color="FF00FF", fill_type="solid")
-                    except:
-                        pass          
-
-                    try:
                         i = -1
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=7, max_col=7):
                             for cell in row:
@@ -2204,7 +2579,7 @@ class SimulationThread(threading.Thread):
                                     if TNRA[i] == True and PH[i] < PA[i]:
                                         cell.fill = PatternFill(start_color="FF00FF", end_color="FF00FF", fill_type="solid")
                     except:
-                        pass  
+                        pass          
 
                     ################################################ AF ####################################
                     i = -1
@@ -2229,6 +2604,8 @@ class SimulationThread(threading.Thread):
 
                         home =[row[0:5] for row in t]
                         away =[row[5:] for row in t]
+                        print(home)
+                        print(away)
                         home_check = []
                         away_check = []
                         x = 0
@@ -2236,18 +2613,19 @@ class SimulationThread(threading.Thread):
                             for elm in home[i]:
                                 if elm[1:4] in home_score_check and elm[0] == "H" and elm[-1] != "L":
                                     x += 1
-                                    #print(elm)
+                                    print(elm)
                                 
                             if x >= 1:
                                 home_check.append(True)
                                 x = 0
                             else:
                                 home_check.append(False)    
+                        print(home_check)
                         x = 0
                         for i in range(len(away)):
                             for elm in away[i]:
                                 if elm[1:4] in away_score_check and elm[0] == "A" and elm[-1] != "L":
-                                    #print("away",elm)
+                                    print("away",elm)
                                     x += 1
                                 
                             if x >= 1:
@@ -2255,6 +2633,7 @@ class SimulationThread(threading.Thread):
                                 x = 0
                             else:
                                 away_check.append(False)    
+                        print(away_check)
                         return home_check,away_check
                     homeC, awayA = check_data(raw_data)
                     ic(homeC)
@@ -2267,24 +2646,32 @@ class SimulationThread(threading.Thread):
                                 try:
                                     if cell.value is not None and  cell.value != 'Date' and cell.value !='' and isinstance(cell.value,str) :
                                         inde += 1
+                                        print(inde)
                                         if homeC[inde] == True and awayA[inde]== False:
+                                            # CODE 1 FB9B33
                                             cell.fill = PatternFill(start_color="FFCE33", end_color="FFCE33", fill_type="solid")
                                             if PH[inde] >= PA[inde]:
                                                 if AVGH[inde] >= AVGA[inde]:
                                                     font = Font(color='9FFF05', bold=True ,italic=True)  # Red color in hexadecimal notation
                                                     cell.font = font
+                                                    print("acacacacacaacacacacacacaca")
                                                 else:
                                                     font = Font(color='E4080A', bold=True ,italic=True)  # Red color in hexadecimal notation
                                                     cell.font = font
+                                                    print("acacacacacaacacacacacacaca")
 
                                         if homeC[inde] == False and awayA[inde]== True:
+                                            # CODE 1 5DE2E7
                                             cell.fill = PatternFill(start_color="538DD5", end_color="538DD5", fill_type="solid")
                                         if homeC[inde] == True and awayA[inde]== True:
+                                                # CODE 2 FB9B33
                                             cell.fill = PatternFill(start_color="EFBCFE", end_color="EFBCFE", fill_type="solid")
                                 except:
                                     pass
+                                    #print('error8')
                     except:
                         pass
+                    print(raw_data)
 
                     def check_dataa(t):
                         away_score_check = ["2-1", "2-2", "3-1", "3-2", "3-3", "4-0", "4-1", "4-2", "4-3", "5-0", "5-1", "5-2", "5-3", "5-4"]
@@ -2292,6 +2679,8 @@ class SimulationThread(threading.Thread):
 
                         home =[row[0:5] for row in t]
                         away =[row[5:] for row in t]
+                        print(home)
+                        print(away)
                         home_check = []
                         away_check = []
                         x = 0
@@ -2300,7 +2689,7 @@ class SimulationThread(threading.Thread):
                                 for elm in home[i]:
                                     if elm[1:4] in home_score_check and elm[0] == "A" and elm[-1] != "L":
                                         x += 1
-                                        #print(elm)
+                                        print(elm)
                                     
                                 if x >= 1:
                                     home_check.append(True)
@@ -2309,13 +2698,13 @@ class SimulationThread(threading.Thread):
                                     home_check.append(False)
                         except:
                             pass    
-
+                        print(home_check)
                         x = 0
                         try:
                             for i in range(len(away)):
                                 for elm in away[i]:
                                     if elm[1:4] in away_score_check and elm[0] == "H" and elm[-1] != "L":
-                                        #print("away",elm)
+                                        print("away",elm)
                                         x += 1
                                     
                                 if x >= 1:
@@ -2325,6 +2714,8 @@ class SimulationThread(threading.Thread):
                                     away_check.append(False)
                         except:
                             pass 
+
+                        print(away_check)
                         return home_check,away_check
                     homeC, awayA = check_dataa(raw_data)
                     ic(homeC)
@@ -2335,14 +2726,20 @@ class SimulationThread(threading.Thread):
                             for cell in row:
                                 if cell.value is not None and  cell.value != 'League' and cell.value !='' and isinstance(cell.value,str) :
                                     inde += 1
+                                    print(inde)
                                     if homeC[inde] == True and awayA[inde]== False:
+                                        # CODE 1 5DE2E7
                                         cell.fill = PatternFill(start_color="538DD5", end_color="538DD5", fill_type="solid")
                                     if homeC[inde] == False and awayA[inde]== True:
+                                        # CODE 1 5DE2E7
                                         cell.fill = PatternFill(start_color="FFCE33", end_color="FFCE33", fill_type="solid")
                                     if homeC[inde] == True and awayA[inde]== True:
+                                            # CODE 2 FB9B33
                                         cell.fill = PatternFill(start_color="EFBCFE", end_color="EFBCFE", fill_type="solid")
+                                #print('error9')
                     except:
                         pass
+                    print(raw_data)
 
                     try:
                         for team_score_index in range(len(t1_avg)):    
@@ -2360,6 +2757,7 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
                     
+                    print("null to null coloring")
                     if res != None:
                         po = 0
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=4):
@@ -2378,6 +2776,7 @@ class SimulationThread(threading.Thread):
                                         po += 1
                                 except:
                                     pass
+                                    #print('error10')
                         
 
                         po = 0
@@ -2397,46 +2796,404 @@ class SimulationThread(threading.Thread):
                                         po += 1
                                 except:
                                     pass
+                                    #print('error11')
 
-                   
+                    '''for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=4):
+                        for cell in row:
+                            if cell.value is not None and  cell.value != 'Home' and cell.value !='' and isinstance(cell.value,str) :
+                                print('::::::::::::::::::',SDH[po],SDA[po],res[po][0:2])
+                                print(cell.value)
+                                """if new_avg[po][0] < new_avg[po][1]:
+                                    cell.border = thick_red_border"""
 
-                    #SYM...
+                                if res[po][0:2].count(True) >= 1 and float(SDH[po]) <= 0.3099999:
+                                    cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+                                    font = Font(color='FFFFFF',name='Arial Narrow', size=11, bold=True, italic=True)  # Red color in hexadecimal notation
+                                    cell.font = font
+                                    print('True')
+                                    """if new_avg[po][0] < new_avg[po][1]:
+                                        cell.border = thick_red_border"""
+                                elif res[po][2:4].count(True) >= 1 and float(SDH[po]) <= 0.309999:
+                                    cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+                                    font = Font(color='FFFFFF',name='Arial Narrow', size=11, bold=True, italic=True)  # Red color in hexadecimal notation
+                                    cell.font = font
+                                    print('True')
+                                    
+                                    """if new_avg[po][0] < new_avg[po][1]:
+                                        cell.border = thick_red_border"""
+                                if res[po][0:2].count(True) >= 1 and float(SDA[po]) >= 0.31:
+                                    cell.fill = PatternFill(start_color="9B9A9A", end_color="9B9A9A", fill_type="solid")
+                                    font = Font(color='000000',name='Arial Narrow', size=11, bold=True, italic=True)  # Red color in hexadecimal notation
+                                    cell.font = font
+                                    print('True')
+                                    """if new_avg[po][0] < new_avg[po][1]:
+                                        cell.border = thick_red_border"""
+                                elif res[po][2:4].count(True) >= 1 and float(SDA[po]) <= 0.31:
+                                    cell.fill = PatternFill(start_color="9B9A9A", end_color="9B9A9A", fill_type="solid")
+                                    font = Font(color='000000',name='Arial Narrow', size=11, bold=True, italic=True)  # Red color in hexadecimal notation
+                                    cell.font = font
+                                    print('True')
+                                    """if new_avg[po][0] < new_avg[po][1]:
+                                        cell.border = thick_red_border"""
+                                if res[po][0:2].count(True) >= 1 and res[po][2:4].count(True) >= 1:
+                                    cell.fill = PatternFill(start_color="2EA001", end_color="2EA001", fill_type="solid")
+                                    font = Font(color='000000',name='Arial Narrow', size=11, bold=True, italic=True)  # Red color in hexadecimal notation
+                                    cell.font = font
+                                    print('True')
+                                    """if new_avg[po][0] < new_avg[po][1]:
+                                        cell.border = thick_red_border"""
+                                    
+                                     
+
+                                po += 1'''
+                        # LEAGUE
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=4):
+                            for cell in row:
+                                if cell.value is not None and  cell.value != 'Away' and cell.value !='' and isinstance(cell.value,str) and 'VS' in cell.value:
+                                    if (PROV_AH or PROV_SK) & (PROV_DBT or PROV_BK or PROV_D3RD or PROV_D5TH or PROV_LTN1ST):
+                                        cell.border = thick_red_border
+                                        PROV_NK = True
+                    except:
+                        pass
+
+                    
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (float(AVGH[i]) + float(AVGA[i])) >= 2.2 and (PROV_SK or PROV_AH or PROV_NX or PROV_D3RD or PROV_D5TH) and (PROV_LN7 or PROV_3NR):
+                                        font = Font(color='FF0066',name='Arial Narrow', size=11, bold=True)
+                                        cell.font = font  
+                                        PROV_IMC = True
+                    except:
+                        pass
+
+
+                    #i = -1
+                    #try:
+                    #    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
+                    #        for cell in row:
+                    #            if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                    #                i += 1
+                    #                if (float(AVGH[i]) + float(AVGA[i])) >= 1.79 and (PROV_HDN or PROV_BK or PROV_DBT or PROV_D5TH) and (PROV_3DD):
+                    #                    font = Font(color='#00B0F0',name='Arial Narrow', size=11)
+                    #                    cell.font = font  
+                    #except:
+                    #    pass          
+
+                    #NN = ...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=25, max_col=25):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if PROV_SCA and (PROV_ECC or PROV_GDSZ or PROV_PTN):
+                                        font = Font(color='#00FFFF',name='Arial Narrow', size=11, bold=True, italic=True)
+                                        cell.font = font  
+                                        PROV_NED = True
+                    except:
+                        pass         
+
+                    #NED = ....
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=3, max_col=3):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if PROV_ECC and PROV_F09 and PROV_SK:
+                                        cell.border = thick_red_border
+                                        PROV_NED = True
+                    except:
+                        pass     
+                    
+                    #NFD = ....
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=21, max_col=21):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if PROV_F09 and PROV_SK:
+                                        cell.border = thick_red_border
+                                        PROV_NFD = True
+                    except:
+                        pass    
+
+                    #FTF = ....
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=22, max_col=22):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (PROV_F09 or PROV_DBT) and PROV_AH and PROV_LN7:
+                                        cell.border = thick_Pink_border
+                                        PROV_FTF = True
+                    except:
+                        pass  
+
+                    #TIG = ....
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=9, max_col=9):
                             for cell in row:
-                                if cell.value is not None and  cell.value !='' and cell.value != 'AVGA' and isinstance(cell.value,str) :
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if PROV_ECC and PROV_AH and (PROV_3NR or PROV_LN7 or (float(CVA[i]) + float(CVH[i])) <= 0.15):
+                                        cell.border = thick_black_border
+                                        PROV_TIG = True
+                    except:
+                        pass             
+
+                    #EAG = ....
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=6, max_col=6):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (PROV_3DD or PROV_DP) and (PROV_AH or PROV_SK) and (PROV_TIG or PROV_DP) and PROV_LN7:
+                                        cell.border = thick_Blue_border
+                                        PROV_EAG = True
+                    except:
+                        pass        
+
+                    #CCH = ....
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=2, max_col=2):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if PROV_ECC and PROV_F09 and (PROV_AH or PROV_TIG):
+                                        font = Font(color='#FFFFFF',name='Arial Narrow', size=11, bold=True, italic=True)
+                                        cell.font = font  
+                    except:
+                        pass    
+
+                    #CYC = ....
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=5, max_col=5):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (PROV_IMC or PROV_TIG or PROV_EAG):
+                                        font = Font(color='#B7DEE8',name='Arial Narrow', size=11)
+                                        cell.font = font  
+                                        PROV_CYC = True
+                    except:
+                        pass    
+
+                    #OWO...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=10, max_col=10):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (PROV_ECC or PROV_NK) and PROV_F09 and PROV_FTF and (PROV_3NR or PROV_LN7):
+                                        cell.border = thick_red_border
+                                        PROV_OWO = True
+                    except:
+                        pass
+
+                    #BFM...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=11, max_col=11):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (PROV_ECC or PROV_AH or PROV_BK) and (PROV_HDN or PROV_3NR):
+                                        cell.border = thick_black_border
+                                        PROV_BFM = True
+                    except:
+                        pass      
+
+                    #OHO...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=4):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if PROV_NX and PROV_AH and (PROV_SK or PROV_TIG) and (float(GVA[i]) + float(GVH[i]) >= 1.89):
+                                        font = Font(color='#A6A6A6',name='Arial Narrow', size=11)
+                                        cell.font = font 
+                    except:
+                        pass  
+                
+                    #OAO...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=16, max_col=16):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if ((PROV_3DD or PROV_AH) and (float(GVA[i]) + float(GVH[i]) >= 2.1)) or (PROV_D3RD or PROV_D5TH or (float(CVA[i]) + float(CVH[i])) <= 0.15) or (PROV_3NR or PROV_BK or PROV_HDN):
+                                        cell.border = thick_Gold_border
+                                        PROV_BFM = True 
+                    except:
+                        pass  
+
+                    #VNM...
+                    #i = -1
+                    #try:
+                    #    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=7, max_col=7):
+                    #        for cell in row:
+                    #            if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                    #                i += 1
+                    #                if (PROV_3DD or PROV_F09) or (PROV_NN or PROV_NED or (float(GVA[i]) + float(GVH[i]) >= 1.83)) or (PROV_TIG or PROV_D3RD or PROV_D5TH) and (PROV_LN7 or PROV_3NR):
+                    #                     cell.fill = PatternFill(start_color="00B0F0", end_color="00B0F0", fill_type="solid")
+                    #except:
+                    #    pass  
+
+                    #HHY...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if (PROV_HDN or PROV_SK or PROV_AH) and (float(GVA[i]) + float(GVH[i]) >= 1.95) or (PROV_F09):
+                                        cell.border = thick_Blue_border
+                    except:
+                        pass  
+
+                    #SYM...
+                    i = -1
+                    try:
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
+                            for cell in row:
+                                if cell.value is not None and  cell.value !='' and isinstance(cell.value,str) :
                                     i += 1
                                     if (PROV_TIG and (float(GVA[i]) + float(GVH[i]) >= 1.74)):
                                         cell.fill = PatternFill(start_color="ABFFDD", end_color="ABFFDD", fill_type="solid")
                     except:
                         pass  
+                    """for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=10, max_col=11):
+                        for cell in row:
+                            if cell.value is not None and cell.value != 'CV Home' and cell.value != 'CV Away' and cell.value !='' and isinstance(cell.value,str) and '.' in cell.value:
+                                if  float(cell.value) <=0.21:
+                                    cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+                                    font = Font(color='4EEA10')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >=0.22 and float(cell.value) <=0.39:
+                                    cell.fill = PatternFill(start_color="060270", end_color="060270", fill_type="solid")
+                                    font = Font(color='FFFFFF')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >= 0.40 and float(cell.value) <= 0.51:
+                                    cell.fill = PatternFill(start_color="CC6CE7", end_color="CC6CE7", fill_type="solid")
+                                    font = Font(color='FCE95D')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >=0.52 and float(cell.value) <= 0.81:
+                                    cell.fill = PatternFill(start_color="E4080A", end_color="E4080A", fill_type="solid")
+                                    font = Font(color='F3B701')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >=0.82 and float(cell.value) <= 1.7:
+                                    cell.fill = PatternFill(start_color="E68508", end_color="E68508", fill_type="solid")
+                                    #font = Font(color='FF0000')  # Red color in hexadecimal notation
+                                    #cell.font = font
+                                    """                  
+                    """for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=9):
+                        for cell in row:
+                            if cell.value is not None and cell.value != 'Goal Cost Home' and cell.value != 'Goal Cost Away' and cell.value !='' and isinstance(cell.value,str) and '.' in cell.value:
+                                if  float(cell.value) <=0.11:
+                                    cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
+                                    font = Font(color='4EEA10')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >=0.12 and float(cell.value) <=0.23:
+                                    cell.fill = PatternFill(start_color="060270", end_color="060270", fill_type="solid")
+                                    font = Font(color='FFFFFF')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >= 0.24 and float(cell.value) <= 0.75:
+                                    cell.fill = PatternFill(start_color="CC6CE7", end_color="CC6CE7", fill_type="solid")
+                                    font = Font(color='FCE95D')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >=0.76 and float(cell.value) <= 0.9:
+                                    cell.fill = PatternFill(start_color="E4080A", end_color="E4080A", fill_type="solid")
+                                    font = Font(color='F3B701')  # Red color in hexadecimal notation
+                                    cell.font = font
+                                elif float(cell.value) >=1.0 and float(cell.value) <= 1.7:
+                                    cell.fill = PatternFill(start_color="E68508", end_color="E68508", fill_type="solid")
+                                    #font = Font(color='FF0000')  # Red color in hexadecimal notation
+                                    #cell.font = font
+                                elif float(cell.value) >= 0 and float(cell.value) <= 5.9:
+                                    font = Font(color='D20103')  # Red color in hexadecimal notation
+                                    cell.font = font"""
+                                       
+                    print('last values')
+                    print(last_mathces)
+                    print(last_matches1,last_matches2)
                     
+                    """for i in range(len(res)):
+                        if res[i][0:2].count(True) >= 1 and res[i][2:4].count(True) >= 1:
+                            print('found',res[i])
+                        elif res[i].count(True) != 0:
+                            print(i,res[i])"""
                     Avgs =[]
                     Tavgs = []
-                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=9):
+                        #print('rowwwwwwww',row)
                         for cell in row:
                             try:
                                 if cell.value is not None and cell.value !='' and cell.value != 'AVGA'and cell.value != 'AVGH':
-                                    #print(cell.value)
+                                    print(cell.value)
                                     Avgs.append(cell.value)
                             except:
                                 pass
+                                #print('error12')
+                                '''if  float(cell.value) >= 1.2 and isinstance(cell.value, str):
+                                     print('deteeeeeeected',cell.value)
+                                     #cell.fill = PatternFill(start_color="C400FF", end_color="C400FF", fill_type="solid")  # Purpole
+                                     cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")''' # Green
+                            
+                    
                     
                     Avgs = [x for x in Avgs if not isinstance(x, float) or not math.isnan(x)]
+                    #print('bbbbbbbbbbbbbbbbbbbbbbbbbbbb',len(Avgs),Avgs)
                     if len(Avgs) % 2 != 0:
                         Avgs.append(0)
                     for team_score_index in range(0, len(Avgs), 2):
-                        #print(Tavgs)
+                        print(Tavgs)
                         pair = [Avgs[team_score_index], Avgs[team_score_index + 1]]
                         Tavgs.append(pair)
-
+                    
+                    #print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",Tavgs)
                     Avgs = []
                     
                     k = 0
-                    ind = 0                                    
+                    ind = 0
+                                
                     Teams = []
+                    ind = 0
+                    k = 0
 
+
+                    k = 0
+                    """ind = 0
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=9):      
+                        for cell in row:
+                            if cell.value is not None and cell.value !='' and cell.value != 'AVGH'and cell.value != 'AVGA' and isinstance(cell.value, str) and float(cell.value) !=0 :
+                                print('celll',cell.value)
+                                
+                                k +=1
+                                if k % 2 == 0:
+                                    
+                                    print(ind)
+                                    if Tavgs[ind][0] ==  Tavgs[ind][1]:
+                                        cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+                                        print('SAME AVGS')
+                                    ind +=1"""
+                                    
+                    Teams = []
+                    ind = 0
                     column_letter = 'B'
                     for cell in ws[column_letter]:
                         cell.font = Font(name='Arial Nova', size=10, bold=False, italic=False)
@@ -2448,6 +3205,7 @@ class SimulationThread(threading.Thread):
                         for cell in row:    
                             try:
                                 if cell.value is not None and cell.value !='' and isinstance(cell.value, str) and  cell.value !="SUM" :
+                                    #print("LELELELELELELE",cell.value)
                                     Teams.append(cell.value)
                                     
                                     if float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 7.4 and float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 12.0:
@@ -2460,7 +3218,22 @@ class SimulationThread(threading.Thread):
 
                     Teams = []
                     ind = 0
-                    
+                    '''for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=16, max_col=16):
+                        for cell in row:    
+                            try:
+                                if cell.value is not None and cell.value !='' and isinstance(cell.value, str) and  cell.value !="Early" :
+                                    print("LELELELELELELE",cell.value)
+                                    Teams.append(cell.value)
+                                    
+                                    if float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 4.4 and float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 7.2:
+                                        cell.fill = PatternFill(start_color="8D26A9", end_color="8D26A9", fill_type="solid") #Black SUM
+                                    ind += 1
+                                
+
+                            except:
+                                pass    '''            
+
+
                     Teams = []
                     ind = 0 ###################### TO BE UPDATED 
                     thick_red_border = Border(left=Side(border_style='thick', color='C000F7'),
@@ -2468,9 +3241,92 @@ class SimulationThread(threading.Thread):
                           top=Side(border_style='thick', color='C000F7'),
                           bottom=Side(border_style='thick', color='C000F7'))
                     x = -1
-                      
-                    Teams = []                   
-                    ind = 0 
+                    #################################################################### IN HOLD THE 3.5 Task #########################################
+                    '''for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=9, max_col=9):
+                        x += 1
+                        for cell in row:    
+                            try:
+                                if cell.value is not None and cell.value !='' and isinstance(cell.value, str) and  cell.value !="AVGH" and  cell.value !="AVGA":
+                                    print("LELELELELELELE",cell.value)
+                                    Teams.append(cell.value)
+                                    ic(cell.value)
+                                    ic(Tavgs[ind][0])
+                                    ic(Tavgs[ind][1])
+                                    if float(cell.value) == 3.4 :
+                                       print("colooooooredd")
+                                        #cell.font = Font(color = "C000F7F",name='Arial Nova', size=10, bold=False, italic=False)
+                                       #cell.fill = PatternFill(start_color="C615F7", end_color="C615F7", fill_type="solid") #purpole
+                                       cell.border = color2
+                            except:
+                                print('error13')
+                    print("SECOND")                
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
+                        x += 1
+                        for cell in row:    
+                            try:
+                                if cell.value is not None and cell.value !='' and isinstance(cell.value, str) and  cell.value !="AVGH" and  cell.value !="AVGA":
+                                    print("LELELELELELELE",cell.value)
+                                    Teams.append(cell.value)
+                                    ic(cell.value)
+                                    ic(Tavgs[ind][0])
+                                    ic(Tavgs[ind][1])
+                                    if float(cell.value) == 3.4 :
+                                       print("colooooooredd")
+                                        #cell.font = Font(color = "C000F7F",name='Arial Nova', size=10, bold=False, italic=False)
+                                       #cell.fill = PatternFill(start_color="C615F7", end_color="C615F7", fill_type="solid") #purpole
+                                       cell.border = color2
+                                    """if  float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 3.0 and float(Tavgs[ind][0]) + float(Tavgs[ind][1]) <=4.2:
+                                        if float(Tavgs[ind][0]) == 3.4 or float(Tavgs[ind][1]) ==3.4 :
+                                            cell.fill = PatternFill(start_color="C400FF", end_color="C400FF", fill_type="solid")
+                                        font = Font(color='7DDA58',name='Arial Nova', size=10, bold=True, italic=True)  # Red color in hexadecimal notation
+                                        cell.font = font
+                                    elif  float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 4.4 and float(Tavgs[ind][0]) + float(Tavgs[ind][1]) <=7.2:
+                                        font = Font(color='C68802',name='Arial Nova', size=10, bold=True, italic=True)  # Red color in hexadecimal notation
+                                        cell.font = font
+                                    elif  float(Tavgs[ind][0]) + float(Tavgs[ind][1]) >= 7.4 and float(Tavgs[ind][0]) + float(Tavgs[ind][1]) <=12.0:
+                                        font = Font(color='07F8E4',name='Arial Nova', size=10, bold=True, italic=True)  # Red color in hexadecimal notation
+                                        cell.font = font"""
+
+                                    ind += 1
+                                
+
+                            except:
+                                pass
+                     '''           
+                    ind = 0  
+                    Teams = []          
+                    """
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=4, max_col=5):
+                        for cell in row:    
+                            try:
+                                if cell.value is not None and cell.value !='' and isinstance(cell.value, str) and  "VS"  in cell.value :
+                                    print(cell.value)
+                                    Teams.append(cell.value)
+                                    
+                                    if Tavgs[ind][0] == Tavgs[ind][1] :
+                                        print('bigger')
+                                        cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid") #Green
+                                    ind += 1
+                                
+
+                            except:
+                                pass 
+                            """
+                                
+                    ind = 0            
+                    """for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=2, max_col=3):                     
+                        for cell in row:
+                            try:
+                            
+                                if cell.value is not None and cell.value !='' and isinstance(cell.value, str) and   cell.value.count('-') and len(cell.value) == 10 :
+                                    if  str(Tavgs[ind][0]).split('.')[1] == str(Tavgs[ind][1]).split('.')[1]:
+                                        print(str(Tavgs[ind][0]).split('.')[1],str(Tavgs[ind][1]).split('.')[1])
+                                        print('blackkkkkkkkkk')
+                                        cell.fill = PatternFill(start_color="00B6D2", end_color="00B6D2", fill_type="solid") #Blue
+                                    ind += 1
+                            except:
+                                pass"""
+
                     row_index = -1
                     thick_red_border = Border(left=Side(border_style='thick', color='E4080A'),
                           right=Side(border_style='thick', color='E4080A'),
@@ -2482,10 +3338,14 @@ class SimulationThread(threading.Thread):
                             try:
                                 if cell.value is not None and  cell.value != 'Date'  and isinstance(cell.value,str) and '-' in cell.value:
                                     row_index += 1
+                                    print(cell.value)
+
                                     verified_team_1=False
                                     verified_team_2=False
 
                                     for team_score_index in range(1,5):
+                                        
+                                        # print(';;;;;',results[row_index][team_score_index][0:3],results[row_index][team_score_index][-1])
                                         L_and_0_T1 = 'L' ==  results[row_index][team_score_index][-1] and '0' in results[row_index][team_score_index][0:3]
                                         L_and_0_T2 = 'L' ==  results[row_index][team_score_index+5][-1] and '0' in results[row_index][team_score_index+5][0:3]
 
@@ -2496,19 +3356,29 @@ class SimulationThread(threading.Thread):
                                             verified_team_2=True
 
                                         if verified_team_1 and verified_team_2:    
+                                            # Red color in hexadecimal notation
                                             cell.border = thick_red_border
+                                            #print('uuuuuuuuuuuuuuuuuuuuuuu')
                                             break       # SWITCH TO BORDER
                             except:
                                 pass
+                                #print('error14') 
                      
+                    
+                    #print('teammmmmmms',Teams)
                     def filtering_function_draw(results_team:list[list[str]])->list[list[bool]]:
+                        # intializing 2D list
                         boolean_list=[[False]*3 for _ in range(len(results_team))]
+
                         for row_index in range(len(results_team)):
+
                             verified_draw_t1=False
                             verified_draw_t2=False
+
                             verified_draw_3_or_4=False
 
                             for i in range(0,5):
+
                                 team1_scores=results_team[row_index][i]
                                 team2_scores=results_team[row_index][i+5]
                                 
@@ -2519,9 +3389,12 @@ class SimulationThread(threading.Thread):
 
                                     # condition for third function               
                                     draw_same_order_t1=True
+
                                     if(team1_scores[0]=="2" or team1_scores[0]=="1"):
+                                        # condition for first function
                                         verified_draw_t1=True
                                     elif(team1_scores[0]=="3" or team1_scores[0]=="4"):
+                                        # condition for second function
                                         verified_draw_3_or_4=True
 
                                     
@@ -2552,22 +3425,48 @@ class SimulationThread(threading.Thread):
                     thick_red_border = Border(left=Side(border_style='thick', color='EB07FF'),
                           right=Side(border_style='thick', color='EB07FF'),
                           top=Side(border_style='thick', color='EB07FF'),
-                          bottom=Side(border_style='thick', color='EB07FF')) 
+                          bottom=Side(border_style='thick', color='EB07FF'))
+                              ######################### new task removed      
+                    """for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=1):
+                        for cell in row:
+                            try:
+                                if cell.value is not None and  cell.value != 'Time'  and isinstance(cell.value,str) and ':' in cell.value:
+                                    p += 1
+                                    if final_res[p][0]:
+                                        cell.fill = PatternFill(start_color="FE9900", end_color="FE9900", fill_type="solid") #Orange
+                                    if final_res[p][1]:
+                                        cell.border = thick_red_border
+                                    if final_res[p][2]:
+                                        font = Font(color='FFD428',name='FFD428', size=10, bold=True, italic=True)  # Red color in hexadecimal notation
+                                        cell.font = font
+                            except:
+                                print("error14")
+                                        
+"""
+                    
 
                     # Apply cell coloring based on values in the 'W/L' column
-                    try:
-                        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=41):
-                            for cell in row:
-                                # Skip empty cells
-                                if cell.value is not None:
-                                    if cell.value == 'D':
-                                        cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # Yellow
-                                    elif cell.value == 'W':
-                                        cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")  # Green
-                                    elif cell.value == 'L':
-                                        cell.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")  # Red
-                    except:
-                        pass
+                    #try:
+                    #    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=41):
+                    #        for cell in row:
+                    #            # Skip empty cells
+                    #            if cell.value is not None:
+                    #                #cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # Yellow
+                    #                if cell.value == 'D':
+                    #                    cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  # Yellow
+                    #                    print('Yellow')
+                    #                elif cell.value == 'W':
+                    #                    cell.fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")  # Green
+                    #                    print('Green')
+                    #                elif cell.value == 'L':
+                    #                    cell.fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")  # Red
+                    #                    print('Red')
+                    #except:
+                    #    pass
+                                #print('celllllllllllllll')
+                                #print(cell,'||||',cell.value)
+
+                    #Goal Cost Home, Goal Cost Away, Prob. Home, Prob. Away, SD Home, SD Away, CV Home & CV Away
                                 
                     c =  -1
                     z = 0
@@ -2575,37 +3474,48 @@ class SimulationThread(threading.Thread):
                     bn = 0
                     ############################################################## TTC ###################################################################################
                     TTC = []
-                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=23):   
+                    '''for i in range(len(ZOYA)):
+                        TTC.append(True)'''
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=23):
+                        
                         for cell in row:
                             try:
                                 if cell.value != '' and cell.value is not None and cell.value != 'CV Home' and cell.value != 'CV Away' and cell.value !='SD Home' and cell.value !='SD Away' and cell.value !='Goal Value A' and cell.value !='Goal Value H'and cell.value !='Goal Cost Home'and cell.value !='Goal Cost Away'and cell.value !='Prob.home'and cell.value !='Prob.Away' and isinstance(cell.value,str):
+                                    #print('8888888',cell.value)
                                     c+=1
                                     
+                                    #print('bn: ',bn,z,total_aux_list[z])
                                     if len(total_aux_list[z]) > 2 and cell.value[2:4] == total_aux_list[z][0] :
+                                        #print('la777a77a77a7a7a7a7a7a7a',bn)
                                         if total_aux_list[z][1] == bn :
                                             font = Font(color='E3C901')  # Red color in hexadecimal notation
                                             cell.font = font
                                             cell.font = Font(color = cell.font.color.rgb,name='Arial Nova', size=11, bold=True, italic=True)
                                             
+                                            #print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
                                         elif total_aux_list[z][2] == bn:
                                             font = Font(color='E3C901')  # Red color in hexadecimal notation
                                             cell.font = font
                                             cell.font = Font(color = cell.font.color.rgb,name='Arial Nova', size=11, bold=True, italic=True)
+                                            #print('vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv')
                                         
                                         PROV_TTC = True
 
                                     bn+=1   
                                     if bn > 9:
+                                        print('-------------------')
                                         c= 0
                                         z+=1
                             except:
                                 pass
+                                #print("error15")
                         bn = 0
                     ################################################################ SCR TTC preperation #############################################
                     c =  -1
                     z = 0
                     zz = 0
                     bn = 0
+                    #print('############# SCR TTC preparation ##########"')
                     for i in range (len(total_aux_list)):
                         if len(total_aux_list[i])>=3:
                             TTC.append(True)
@@ -2621,10 +3531,12 @@ class SimulationThread(threading.Thread):
                                     bn+=1
     
                                     if bn > 9:
+                                        print('-------------------')
                                         c= 0
                                         z+=1
                             except:
                                 pass
+                                #print("error15")
                         bn = 0
                     ################################################################## SCR #############################################################
                     i = -1
@@ -2663,11 +3575,14 @@ class SimulationThread(threading.Thread):
 
                     ################################################################## 3DD and SCP #############################################################
                     i = -1
+                    print('################## 3DD #####################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=25, max_col=25):
                             for cell in row:
+                                #print(cell.value,type(cell.value))
                                 if cell.value is not None and  cell.value != 'SUM' and cell.value !='' and isinstance(cell.value,float) and len(str(cell.value)) >= 1 and str(cell.value) != "nan":
                                     i += 1
+                                    #print(i)
                                     ic(str(cell.value))
                                     if ECC[i] == True and (ZOYA[i] == True or ZOYA2[i] == True):
                                         font = Font(color='FF00FF', bold= True, italic=True)  # Red color in hexadecimal notation
@@ -2680,21 +3595,29 @@ class SimulationThread(threading.Thread):
 
                                         if float(GCA[i]) + float(CVH[i]) + float(CVA[i]) >=0 and float(GCA[i]) + float(CVH[i]) + float(CVA[i]) <=0.17999999999999:
                                             cell.fill = PatternFill(start_color="AC75D5", end_color="AC75D5", fill_type="solid")  
+                                            print('SRT')
                                         if float(GCA[i]) + float(CVH[i]) + float(CVA[i]) >=0.18 and float(GCA[i]) + float(CVH[i]) + float(CVA[i]) <=0.2699999999999:
                                             cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                            print('SRT')
                                         if float(GCA[i]) + float(CVH[i]) + float(CVA[i]) >=0.27 and float(GCA[i]) + float(CVH[i]) + float(CVA[i]) <=0.40999999:
                                             cell.fill = PatternFill(start_color="FFD347", end_color="FFD347", fill_type="solid")  
+                                            print('SRT')
                                         if float(GCA[i]) + float(CVH[i]) + float(CVA[i]) >=0.41 and float(GCA[i]) + float(CVH[i]) + float(CVA[i]) <=0.91999999:
                                             cell.fill = PatternFill(start_color="FFFF66", end_color="FFFF66", fill_type="solid")  
+                                            print('SRT')
                                     elif PH[i] <= PA[i]:
                                         if float(GCH[i]) + float(CVH[i]) + float(CVA[i]) >=0 and float(GCH[i]) + float(CVH[i]) + float(CVA[i]) <=0.179999999999999:
                                             cell.fill = PatternFill(start_color="AC75D5", end_color="AC75D5", fill_type="solid")  
+                                            print('SRT')
                                         if float(GCH[i]) + float(CVH[i]) + float(CVA[i]) >=0.18 and float(GCH[i]) + float(CVH[i]) + float(CVA[i]) <=0.2699999999999:
                                             cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                            print('SRT')
                                         if float(GCH[i]) + float(CVH[i]) + float(CVA[i]) >=0.27 and float(GCH[i]) + float(CVH[i]) + float(CVA[i]) <=0.40999999:
                                             cell.fill = PatternFill(start_color="FFD347", end_color="FFD347", fill_type="solid") 
+                                            print('SRT') 
                                         if float(GCH[i]) + float(CVH[i]) + float(CVA[i]) >=0.41 and float(GCH[i]) + float(CVH[i]) + float(CVA[i]) <=0.91999999:
                                             cell.fill = PatternFill(start_color="FFFF66", end_color="FFFF66", fill_type="solid")  
+                                            print('SRT')
                                     PROV_3DD = True
                     except:
                         pass
@@ -2718,42 +3641,38 @@ class SimulationThread(threading.Thread):
                     ################################################################## F-09 #############################################################
                     i = -1
                     try:
-                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=5, max_col=5):
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=26, max_col=26):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'Away' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Live' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
+                                    #m = min(float(SDH[i]),float(SDA[i]))
+                                    #mx = max(float(SDH[i]),float(SDA[i]))
                                     if SDH[i] > SDA[i] :
                                         if   float(SDA[i]) * 1.25 < float(SDH[i]) and float(SDA[i]) * 2.17 > float(SDH[i]) and float(SDA[i]) <= 0.31 and float(SDA[i]) >= 0.11 :
-                                            if (ZOYA[i] == True or ZOYA2[i] == True):
-                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
-                                                cell.font = font
-                                                #cell.border = thick_Black_border
+                                            if (ZOYA[i] == True or ZOYA2[i] == True) :
+                                                cell.border = thick_Black_border
                                             elif (Pink_Zoya[i] == True or Pink_Zoya2[i] == True):
-                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
-                                                cell.font = font
-                                                #cell.border = thick_Pink_border
+                                                cell.border = thick_Pink_border
                                             PROV_F09 = True
                                         
                                     else:  
                                         if   float(SDH[i]) * 1.25 < float(SDA[i]) and float(SDH[i]) * 2.17 > float(SDA[i]) and float(SDH[i]) <= 0.31 and float(SDH[i]) >= 0.11:  # ZOYAF_09[i] == True and
                                             if (ZOYA[i] == True or ZOYA2[i] == True) :
-                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
-                                                cell.font = font
-                                                #cell.border = thick_Black_border
+                                                cell.border = thick_Black_border
                                             elif (Pink_Zoya[i] == True or Pink_Zoya2[i] == True):
-                                                font = Font(color='FFFF0000', name='Arial Narrow', size=11, bold=True, italic=True)
-                                                cell.font = font
-                                                #cell.border = thick_Pink_border
+                                                cell.border = thick_Pink_border
                                             PROV_F09 = True
                     except:
                         pass                
                     ################################################################## PAV #############################################################
+                    print('################################## PAV #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'HGD' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
+                                    
                                     val = str(float(GCH[i]) *1.04)
                                     val2 = str(float(GCH[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3] :
@@ -2769,6 +3688,7 @@ class SimulationThread(threading.Thread):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
+                                    
                                     val = str(float(GCA[i]) *1.04)
                                     val2 = str(float(GCA[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
@@ -2779,6 +3699,7 @@ class SimulationThread(threading.Thread):
                         pass
                         
                     ################################################################## HQO #############################################################
+                    print('################################## HQO #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -2801,6 +3722,7 @@ class SimulationThread(threading.Thread):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
+                                    
                                     val = str(float(GCA[i]) *1.04)
                                     val2 = str(float(GCA[i]) *0.96)
                                     if  val2[val2.index('.')+1:val2.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3]:
@@ -2809,7 +3731,10 @@ class SimulationThread(threading.Thread):
                                         PROV_HQO = True
                     except:
                         pass 
+                        
+                    
                     ################################################################## CIS #############################################################
+                    print('################################## CIS #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -2819,6 +3744,7 @@ class SimulationThread(threading.Thread):
                                     
                                     val = str(float(GCH[i]) *2.4)
                                     val2 = str(float(GCH[i]) *2.51)
+
                                     if  val[val.index('.')+1:val.index('.')+3] <= HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3] <= val2[val2.index('.')+1:val2.index('.')+3]:
                                         cell.fill = PatternFill(start_color="404040", end_color="404040", fill_type="solid")  
                                         SCA_Check = True
@@ -2835,6 +3761,7 @@ class SimulationThread(threading.Thread):
                                     
                                     val = str(float(GCA[i]) *2.4)
                                     val2 = str(float(GCA[i]) *2.51)
+
                                     if  val[val.index('.')+1:val.index('.')+3] <= AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] <= val2[val2.index('.')+1:val2.index('.')+3]:
                                         cell.fill = PatternFill(start_color="404040", end_color="404040", fill_type="solid")  
                                         SCA_Check = True
@@ -2843,11 +3770,12 @@ class SimulationThread(threading.Thread):
                         pass 
 
                     ################################################################## ASY #############################################################
+                    print('################################## ASY #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != "HGD" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != "Goal Cost Home" and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(HGD[i]) *2.4)
@@ -2878,6 +3806,7 @@ class SimulationThread(threading.Thread):
                         pass 
 
                     ################################################################## CEO #############################################################
+                    print('################################## CEO #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -2902,6 +3831,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCA[i]) *2.80)
+                                    #val2 = str(float(GCA[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="FF0066", end_color="FF0066", fill_type="solid")  
                                         SCA_Check = True
@@ -2910,6 +3840,7 @@ class SimulationThread(threading.Thread):
                         pass
                     
                     ################################################################## RKT #############################################################
+                    print('################################## RKT #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -2918,6 +3849,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCH[i]) *3.5999)
+                                    #val2 = str(float(GCH[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="00FF99", end_color="00FF99", fill_type="solid")  
                                         SCA_Check = True
@@ -2933,6 +3865,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCA[i]) *3.5999)
+                                    #val2 = str(float(GCA[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="00FF99", end_color="00FF99", fill_type="solid")  
                                         SCA_Check = True
@@ -2941,14 +3874,16 @@ class SimulationThread(threading.Thread):
                         pass
 
                     ################################################################## AAO #############################################################
+                    print('################################## AAO #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'HGD' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Goal Cost Home' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(HGD[i]) *2.80)
+                                    #val2 = str(float(HGD[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="5B114D", end_color="5B114D", fill_type="solid")  
                                         SCA_Check = True
@@ -2960,10 +3895,11 @@ class SimulationThread(threading.Thread):
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=13, max_col=13):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Goal Cost Away' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(AGD[i]) *2.80)
+                                    #val2 = str(float(AGD[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="5B114D", end_color="5B114D", fill_type="solid")  
                                         SCA_Check = True
@@ -2972,14 +3908,16 @@ class SimulationThread(threading.Thread):
                         pass
                     
                     ################################################################## NRG #############################################################
+                    print('################################## NRG #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'HGD' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Goal Cost Home' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(HGD[i]) *0.6945)
+                                    #val2 = str(float(HGD[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  
                                         SCA_Check = True
@@ -2991,10 +3929,11 @@ class SimulationThread(threading.Thread):
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=13, max_col=13):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Goal Cost Away' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(AGD[i]) *0.6945)
+                                    #val2 = str(float(AGD[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")  
                                         SCA_Check = True
@@ -3003,14 +3942,16 @@ class SimulationThread(threading.Thread):
                         pass
 
                     ################################################################## THK #############################################################
+                    print('################################## THK #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'HGD' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Goal Cost Home' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(HGD[i]) *1.3889)
+                                    #val2 = str(float(HGD[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="6600FF", end_color="6600FF", fill_type="solid")  
                                         SCA_Check = True
@@ -3022,10 +3963,11 @@ class SimulationThread(threading.Thread):
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=13, max_col=13):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
+                                if cell.value != '' and cell.value is not None and cell.value != 'Goal Cost Away' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
                                     val = str(float(AGD[i]) *1.3889)
+                                    #val2 = str(float(AGD[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="6600FF", end_color="6600FF", fill_type="solid")  
                                         SCA_Check = True
@@ -3034,6 +3976,7 @@ class SimulationThread(threading.Thread):
                         pass
 
                     ################################################################## COO #############################################################
+                    print('################################## COO #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -3042,6 +3985,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCH[i]) *2.88)
+                                    #val2 = str(float(GCH[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="7DFF7D", end_color="7DFF7D", fill_type="solid")  
                                         SCA_Check = True
@@ -3057,6 +4001,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCA[i]) *2.88)
+                                    #val2 = str(float(GCA[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="7DFF7D", end_color="7DFF7D", fill_type="solid")  
                                         SCA_Check = True
@@ -3065,6 +4010,7 @@ class SimulationThread(threading.Thread):
                         pass 
                         
                     ################################################################## THU #############################################################
+                    print('################################## THU #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -3073,6 +4019,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCH[i]) *3)
+                                    #val2 = str(float(GCH[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="00FFFF", end_color="00FFFF", fill_type="solid")  
                                         SCA_Check = True
@@ -3088,6 +4035,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str(float(GCA[i]) *3)
+                                    #val2 = str(float(GCA[i]) *0.96)
                                     if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                         cell.fill = PatternFill(start_color="00FFFF", end_color="00FFFF", fill_type="solid")  
                                         SCA_Check = True
@@ -3096,6 +4044,7 @@ class SimulationThread(threading.Thread):
                         pass     
 
                     ################################################################## CIN #############################################################
+                    print('################################## CIN #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
@@ -3127,6 +4076,7 @@ class SimulationThread(threading.Thread):
                         pass 
 
                      ################################################################## HSS #############################################################
+                    print('################################## HSS #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
@@ -3159,6 +4109,7 @@ class SimulationThread(threading.Thread):
                         pass 
 
                     ################################################################## HOY #############################################################
+                    print('################################## HOY #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
@@ -3190,6 +4141,7 @@ class SimulationThread(threading.Thread):
                         pass
                     
                     ################################################################## WHP #############################################################
+                    print('################################## WHP #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
@@ -3201,6 +4153,7 @@ class SimulationThread(threading.Thread):
                                     
                                     if val[val.index('.')+1:val.index('.')+3] == GVA[i][GVA[i].index('.')+1:GVA[i].index('.')+3]:
                                         cell.fill = PatternFill(start_color="FABF8F", end_color="FABF8F", fill_type="solid")
+                                        #print('HSY H true')  
                                         SCA_Check = True
                                         PROV_WHP = True
                     except:
@@ -3210,17 +4163,21 @@ class SimulationThread(threading.Thread):
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
                             for cell in row:
-                                if cell.value != '' and cell.value is not None and cell.value != "Goal Value H" and cell.value != "" and isinstance(cell.value,str):
-                                    i += 1          
+                                if cell.value != '' and cell.value is not None and cell.value != "Goal Value H" and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
+                                    i += 1
+                                    
                                     val = str(float(GCA[i]) * 0.88)
+                                    
                                     if val[val.index('.')+1:val.index('.')+3] == GVH[i][GVH[i].index('.')+1:GVH[i].index('.')+3]:
                                         cell.fill = PatternFill(start_color="FABF8F", end_color="FABF8F", fill_type="solid")
+                                        #print('HSY A True')
                                         #SCA_Check = True
                                         PROV_WHP = True
                     except:
                         pass 
 
                     ################################################################## VLN #############################################################
+                    print('################################## VLN #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -3263,17 +4220,22 @@ class SimulationThread(threading.Thread):
 
                     ################################################################## HOC #############################################################
                     i = -1
+                    print('############################## HOC ##########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'HGD' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
-                                    val = str((float(GCH[i]) *2 )*1.04)                                
+                                    val = str((float(GCH[i]) *2 )*1.04)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
+                                    
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                            #print('HOC H True')
                                             #SCA_Check = True
                                             PROV_HOC = True
                     except:
@@ -3287,17 +4249,22 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(GCA[i]) *2 )*1.04)
+                                    #print('vall : ',val)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                         
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")
+                                            #print('HOC A True')
                                             #SCA_Check = True
                                             PROV_HOC = True
                     except:
                         pass 
 
                     ################################################################## HSY #############################################################
+                    print('################################## HSY #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -3309,6 +4276,7 @@ class SimulationThread(threading.Thread):
                                     
                                     if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3]:
                                         cell.fill = PatternFill(start_color="588AEE", end_color="588AEE", fill_type="solid")
+                                        #print('HSY H true')  
                                         #SCA_Check = True
                                         PROV_HSY = True
                     except:
@@ -3325,12 +4293,14 @@ class SimulationThread(threading.Thread):
                                     
                                     if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3]:
                                         cell.fill = PatternFill(start_color="588AEE", end_color="588AEE", fill_type="solid")
+                                        #print('HSY A True')
                                         #SCA_Check = True
                                         PROV_HSY = True
                     except:
                         pass 
 
                     ################################################################## OFF #############################################################
+                    print('############################## OFF ##########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
@@ -3339,11 +4309,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(GCH[i]) *2 )*1.12)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
                                     
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="A50021", end_color="A50021", fill_type="solid")  
+                                            #print('HOC H True')
                                             #SCA_Check = True
                     except:
                         pass                     
@@ -3356,11 +4329,15 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(GCA[i]) *2 )*1.12)
+                                    #print('vall : ',val)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                         
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="A50021", end_color="A50021", fill_type="solid")
+                                            #print('HOC A True')
                                             #SCA_Check = True
                     except:
                         pass 
@@ -3373,11 +4350,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(GCH[i]) *2 )*0.88)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
                                     
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="C8A200", end_color="C8A200", fill_type="solid")  
+                                            #print('HOC H True')
                                             #SCA_Check = True
                     except:
                         pass                    
@@ -3390,11 +4370,15 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(GCA[i]) *2 )*0.88)
+                                    #print('vall : ',val)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                         
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="C8A200", end_color="C8A200", fill_type="solid")
+                                            #print('HOC A True')
                                             #SCA_Check = True
                     except:
                         pass 
@@ -3402,17 +4386,22 @@ class SimulationThread(threading.Thread):
 
                     ################################################################## BNG #############################################################
                     i = -1
+                    print('############################## BNG ##########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=12, max_col=12):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'HGD' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
-                                    val = str((float(GCH[i]) *2 )*1.04)                                    
+                                    val = str((float(GCH[i]) *2 )*1.04)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
+                                    
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GVA[i][GVA[i].index('.')+1:GVA[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")  
+                                            #print('BNG H True')
                                             SCA_Check = True
                                             PROV_BNG = True
                     except:
@@ -3426,17 +4415,23 @@ class SimulationThread(threading.Thread):
                                 if cell.value != '' and cell.value is not None and cell.value != 'AGD' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
-                                    val = str((float(GCA[i]) *2 )*1.04)                        
+                                    val = str((float(GCA[i]) *2 )*1.04)
+                                    #print('vall : ',val)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
+                        
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
+                                            #print('BNG A True')
                                             SCA_Check = True
                                             PROV_BNG = True
                     except:
                         pass 
                 
                     ################################################################## GD's-Z #############################################################
+                    print('################################## GDs -Z #########################')
                     i = -1
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=13, max_col=13):
@@ -3450,8 +4445,11 @@ class SimulationThread(threading.Thread):
                     except:
                         pass 
 
+
                     ################################################################## TWI's #############################################################
+
                     i = -1
+                    print('################################## TWIS #########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
                             for cell in row:
@@ -3459,6 +4457,8 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     val = str(float(HGD[i]))
                                     val2 = str(float(GVA[i]))
+                                    #print('v1 : ',val, val[val.index('.')+1:val.index('.')+3])
+                                    #print('v2 :',val2, val2[val2.index('.')+1:val2.index('.')+3])
                                     if val[val.index('.')+1:val.index('.')+3]  == val2[val2.index('.')+1:val2.index('.')+3]:
                                         cell.fill = PatternFill(start_color="DA9694", end_color="DA9694", fill_type="solid")
                                         SCA_Check = True  
@@ -3481,12 +4481,14 @@ class SimulationThread(threading.Thread):
                     except:
                         pass 
 
+
                     ################################################################## PTN #############################################################
                     color111 = Border(left=Side(border_style='thick', color='0000FF'),
                           right=Side(border_style='thick', color='0000FF'),
                           top=Side(border_style='thick', color='0000FF'),
                           bottom=Side(border_style='thick', color='0000FF'))
                     i = -1
+                    print('################################## PTN #########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
                             for cell in row:
@@ -3494,13 +4496,18 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     val = str(float(HGD[i]))
                                     val2 = str(float(AGD[i]))
+                                    #print('v1 : ',val, val[val.index('.')+1:val.index('.')+3])
+                                    #print('v2 :',val2, val2[val2.index('.')+1:val2.index('.')+3])
                                     if float(val) != 0 and float(val2) != 0:
                                         if val[val.index('.')+1:val.index('.')+3]  == val2[val2.index('.')+1:val2.index('.')+3]:
+                                            #cell.fill = PatternFill(start_color="DA9694", end_color="DA9694", fill_type="solid")  
                                             cell.border = color111
                                             SCA_Check = True
                                             PROV_PTN = True
                     except:
                         pass               
+
+
                     ################################################################## RV #############################################################
 
                     #i = -1
@@ -3543,6 +4550,7 @@ class SimulationThread(threading.Thread):
                     ################################################################## AH #############################################################
 
                     i = -1
+                    print('################################## AH #########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=22, max_col=22):
                             for cell in row:
@@ -3562,8 +4570,8 @@ class SimulationThread(threading.Thread):
                                             PROV_AH = True
                     except:
                         pass 
-
                     i = -1
+                    print("Secc")
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=22, max_col=22):
                             for cell in row:
@@ -3571,6 +4579,7 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     check = [0,1.0,-1.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check :
+                                        #print('****',i)
                                         val = str(float(AGD[i]))
                                         
                                         if val[val.index('.')+3:val.index('.')+10]  in PA[i][PA[i].index('.')+3:]:
@@ -3584,15 +4593,20 @@ class SimulationThread(threading.Thread):
                     except:
                         pass 
 
+
+                    print('done')
                     ################################################################## SK #############################################################
 
                     i = -1
+                    print('################################## SK #########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=21, max_col=21):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'Prob.Away' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     val = PH[i]
+                                    #print(PH[i][PH[i].index('.')+1:])
+                                    #print('test1')
                                     if str(PH[i][PH[i].index('.')+1:PH[i].index('.')+10])  in str(GVA[i][GVA[i].index('.')+1:]):
                                         cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")  
                                         font = Font(color='FFFFFF')  # Red color in hexadecimal notation
@@ -3601,6 +4615,7 @@ class SimulationThread(threading.Thread):
                                             cell.fill = PatternFill(start_color="85DFFF", end_color="85DFFF", fill_type="solid")
                                             SCA_Check = True
                                             PROV_SK = True
+                                        #print("SK H True")
                     except:
                         pass             
 
@@ -3615,27 +4630,38 @@ class SimulationThread(threading.Thread):
                                         cell.fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid") 
                                         font = Font(color='FFFFFF')  # Red color in hexadecimal notation
                                         cell.font = font
+                                        #print("SK A True")
+                                        #print('test2')
                                         if (float(PH[i])<=0.2 or float(PA[i])<=0.2):
                                             cell.fill = PatternFill(start_color="85DFFF", end_color="85DFFF", fill_type="solid")
                                             SCA_Check = True
                                             PROV_SK = True
                     except:
                         pass 
+
+                    print("sk done")
+
+
+
                     ################################################################## NX #############################################################
 
                     i = -1
+                    print('################################## NX #########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=23, max_col=23):
                             for cell in row:
                                 if cell.value != '' and cell.value is not None and cell.value != 'SD Away' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     val = PH[i]
+                                    #print(PH[i][PH[i].index('.')+1:])
+                                    #print('test1')
                                     check = [0,1.0,-1.0]
                                     
                                     if str(PH[i][PH[i].index('.')+1:PH[i].index('.')+10])  in str(HGD[i][HGD[i].index('.')+1:])and (float(PH[i])<=0.2 or float(PA[i])<=0.2)and float(AGD[i]) - float(HGD[i]) not in check:
                                         cell.fill = PatternFill(start_color="403151", end_color="403151", fill_type="solid")  
                                         font = Font(color='FFFFFF')  # Red color in hexadecimal notation
                                         cell.font = font
+                                        #print("NX H True")
                                         SCA_Check = True
                                         PROV_NX = True
                     except:
@@ -3653,13 +4679,20 @@ class SimulationThread(threading.Thread):
                                         cell.fill = PatternFill(start_color="403151", end_color="403151", fill_type="solid") 
                                         font = Font(color='FFFFFF')  # Red color in hexadecimal notation
                                         cell.font = font
+                                        #print("SK A True")
+                                        #print('test2')
                                         SCA_Check = True
                                         PROV_NX = True
                     except:
                         pass 
 
+                    print("NX done")
+
+
+
                     ################################################################## HCO #############################################################
                     i = -1
+                    print('############################## HCO ##########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
                             for cell in row:
@@ -3667,11 +4700,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(HGD[i]) *2 )*1.04)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
                                     
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                            #print('HOC H True')
                                             SCA_Check = True
                                             PROV_HCO = True
                     except:
@@ -3685,11 +4721,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(HGD[i]) *2 )*0.96)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
                         
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="FFD901", end_color="FFD901", fill_type="solid")
+                                            #print('HOC A True')
                                             SCA_Check = True
                                             PROV_HCO = True
                     except:
@@ -3704,11 +4743,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(AGD[i]) *2 )*1.04)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                                     
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                            #print('HOC H True')
                                             PROV_HCO = True
                     except:
                         pass                     
@@ -3721,11 +4763,15 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(AGD[i]) *2 )*0.96)
+                                    #print('vall : ',val)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                         
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="FFD901", end_color="FFD901", fill_type="solid")
+                                            #print('HOC A True')
                                             PROV_HCO = True
                     except:
                         pass                     
@@ -3733,6 +4779,7 @@ class SimulationThread(threading.Thread):
 
                     ################################################################## BK09 and QM #############################################################
                     i = -1
+                    print('############################## BK09 And QM ##########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
                             for cell in row:
@@ -3740,11 +4787,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(HGD[i]) *2 )*1.12)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
                                     
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="A50021", end_color="A50021", fill_type="solid")  
+                                            #print('HOC H True')
                                             SCA_Check = True
                                             PROV_BK09 = True
                     except:
@@ -3757,11 +4807,15 @@ class SimulationThread(threading.Thread):
                                 if cell.value != '' and cell.value is not None and cell.value != 'Goal Value H' and cell.value != "" and isinstance(cell.value,str):
                                     i += 1
                                     
-                                    val = str((float(HGD[i]) *2 )*0.88)                        
+                                    val = str((float(HGD[i]) *2 )*0.88)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",HGD[i])
+                        
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="33CC33", end_color="33CC33", fill_type="solid")
+                                            #print('HOC A True')
                                             SCA_Check = True
                                             PROV_BK09 = True
                     except:
@@ -3775,11 +4829,14 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(AGD[i]) *2 )*1.12)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                                     
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3]:
                                             cell.fill = PatternFill(start_color="A50021", end_color="A50021", fill_type="solid")  
+                                            #print('HOC H True')
                                             PROV_QM = True
                     except:
                         pass                     
@@ -3792,17 +4849,24 @@ class SimulationThread(threading.Thread):
                                     i += 1
                                     
                                     val = str((float(AGD[i]) *2 )*0.88)
+                                    #print('vall : ',val)
+                                    #print(val[val.index('.')+1:val.index('.')+3])
+                                    #print("hgd : ",AGD[i])
                         
                                     check = [0,1.0,-1.0,2.0,-2.0]
                                     if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
                                         if val[val.index('.')+1:val.index('.')+3] == GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3] :
                                             cell.fill = PatternFill(start_color="33CC33", end_color="33CC33", fill_type="solid")
+                                            #print('HOC A True')
                                             PROV_QM = True
                     except:
                         pass 
 
-                    ################################################################## SCA #############################################################
+################################################################## SCA #############################################################
+                    
+                    # SCA - Color the letters (font color) of the  LIVE COLUMN  in BLUE  ##0000FF (Bold + Italic)  Zoya  + PAV or HQO  or VLN or HOC or HCO or HSY or GDZ's or PTN or TWI'sor BNG or RV or AH or NX or or UD or SK   
                     i = -1
+                    print('############################## SCA ##########################')
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=26, max_col=26):
                             for cell in row:
@@ -3815,10 +4879,72 @@ class SimulationThread(threading.Thread):
                     except:
                         pass             
 
+                     
+                    """i = -1
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
+                        for cell in row:
+                            if cell.value != '' and cell.value is not None and cell.value != 'Goal Value H' and cell.value != "" and isinstance(cell.value,str):
+                                i += 1
+                                
+                                val = str((float(GCH[i]) *2 )*0.96)
+                                
+                                if val[val.index('.')+1:val.index('.')+3] == HGD[i][HGD[i].index('.')+1:HGD[i].index('.')+3]:
+                                    cell.fill = PatternFill(start_color="FFD901", end_color="FFD901", fill_type="solid")
+                                    print('HSY H true')  
+                                    
+
+                    i = -1
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
+                        for cell in row:
+                            if cell.value != '' and cell.value is not None and cell.value != 'Goal Value A' and cell.value != "" and isinstance(cell.value,str):
+                                i += 1
+                                
+                                val = str((float(GCA[i]) *2 )*0.96)
+                                
+                                if val[val.index('.')+1:val.index('.')+3] == AGD[i][AGD[i].index('.')+1:AGD[i].index('.')+3]:
+                                    cell.fill = PatternFill(start_color="FFD901", end_color="FFD901", fill_type="solid")
+                                    print('HSY A True')"""
+                    """i = -1
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=15, max_col=15):
+                        for cell in row:
+                            if cell.value != '' and cell.value is not None and cell.value != 'Goal Value H' and cell.value != "" and isinstance(cell.value,str):
+                                i += 1
+                                val = (float(HGD[i]) *2)*1.04
+                                val = str(val)
+                                val2 = (float(HGD[i])*2)*0.96
+                                val2 = str(val2)
+                                check = [0,1.0,-1.0,2.0,-2.0]
+                                if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
+                                    if val[val.index('.')+1:val.index('.')+3] in GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3] :
+                                        cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                        print('HCO H True')
+                                    elif val2[val2.index('.')+1:val2.index('.')+3] in GCH[i][GCH[i].index('.')+1:GCH[i].index('.')+3]:
+                                        cell.fill = PatternFill(start_color="FE9900", end_color="FE9900", fill_type="solid")  
+                                    
+                    i = -1
+                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=14, max_col=14):
+                        for cell in row:
+                            if cell.value != '' and cell.value is not None and cell.value != 'Goal Value A' and cell.value != "" and isinstance(cell.value,str):
+                                i += 1
+                                check = [0,1.0,-1.0,2.0,-2.0]
+                                if float(AGD[i]) - float(HGD[i]) not in check or float(HGD[i]) - float(AGD[i]) not in check:
+                                    val = (float(GCH[i])*2) *1.04
+                                    val = str(val)
+                                    val2 = (float(GCH[i])*2) *0.96
+                                    val2 = str(val2)
+                                    if val[val.index('.')+1:val.index('.')+3] in GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3] :
+                                        cell.fill = PatternFill(start_color="FF3333", end_color="FF3333", fill_type="solid")  
+                                        print('HCO A True')
+                                    elif val2[val2.index('.')+1:val2.index('.')+3] in GCA[i][GCA[i].index('.')+1:GCA[i].index('.')+3]:
+                                        cell.fill = PatternFill(start_color="FE9900", end_color="FE9900", fill_type="solid") 
+                                    
+"""
                     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=39, max_col=39):
                         for cell in row:
                             try:
                                 if cell.value != '' and cell.value is not None and cell.value != 'Team' and cell.value != "" and isinstance(cell.value,str):
+                                    #print("new coloring ")
+                                    #print(cell.value)
                                     if '(H)' in cell.value:
                                         font = Font(color='FE9900')  # Red color in hexadecimal notation
                                         cell.font = font
@@ -3827,6 +4953,7 @@ class SimulationThread(threading.Thread):
                                         cell.font = font
                             except:
                                 pass
+                                #print('error16') 
 
                     # Auto-adjust column widthss
                     for column in ws.columns:
@@ -3838,12 +4965,8 @@ class SimulationThread(threading.Thread):
                             ws.column_dimensions[column[0].column_letter].width = adjusted_width
                         except:
                             pass
-
-                    try:
-                        ic(TTC)
-                        ic(ZOYA)
-                    except:
-                        pass
+                    ic(TTC)
+                    ic(ZOYA)
                     # Center align all cells
                     try:
                         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
@@ -3852,13 +4975,31 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
 
-                         # Save the workbook to an Excel file
+                    #print('lalalalalaalalalalaalal')
+                    #print(ws)
+                    # Save the workbook to an Excel file
                     date = act_data[0]['Date'].replace('-', '_')  # Extracting the first date from the list
                     file_path = f'{date}.xlsx'
 
                     # Updates By Wassim Karaouli (rearraging columns order)
                     new_sheet_order = ['Time', 'Date', 'League', 'Home vs Guest', 'Goal Value A', 'Goal Value H', 'Goal Cost Home', 'Goal Cost Away', 'Score(Finished)', 'SD', 'CV', 'Over', 'STAKE POOL', 'Early', 'SUM', 'Live', 'goal1', 'goal2', 'goal3', 'goal4', 'goal5', 'goal6', 'goal7', 'goal8', 'goal9', 'goal10', 'Prob.home', 'Prob.Away', 'Team', 'Score', 'W/L', 'AVG']
+                    #print('ssssssssssssssssssssss')
+                    #print('kallbbbbbbbbb',kalb)
                 
+                    #for row in ws.iter_rows(values_only=True):
+                    #    print(row)
+                    # Create a new workbook
+                    """new_wb = Workbook()
+
+                    # Copy sheets from old workbook to new workbook in desired order
+                    for sheet_name in new_order:
+                        if sheet_name in wb.sheetnames:
+                            sheet = wb[sheet_name]
+                            new_sheet = new_wb.create_sheet(title=sheet_name)
+                            for row in sheet.iter_rows():
+                                for cell in row:
+                                    new_sheet[cell.coordinate].value = cell.value"""
+
                     # Check if the file already exists
                     if os.path.exists(file_path):
                         print(f'Error: File {file_path} already exists.')
@@ -3903,15 +5044,28 @@ class SimulationThread(threading.Thread):
                     wb.save(file_path)
                     
             except Exception as e:
-                print(f'Creating Excel File: {e}')
-                traceback.print_exc()
-                pass
+                print(e)
+                print(f'Error creating an Excel file.')
+                #input('Please check for errors and press enter to retry')
+            # time.sleep(50)
             driver.quit()
+            #sys.exit()
+            print("bad_games -------->",bad_games)
             
         except Exception as e:
             message = 'an Error occured with Farhan Pirzada\'s script message him on upwork or email F.pirzada7@gmail.com\n'
+            print(e)
+            #print(message)
+            #print('I will provide updates')
             
     def dummy_automate(self):
+        """
+        This is a test automation function.
+
+        It will:
+        - work correctly 80% of the time.
+        - throw an exception 20% of the time, to simulate errors.
+        """
         r = random.random()
         if r < 0.2:
             # Wait a random amount of time between 1 and 10 seconds and throw an error.
@@ -3944,6 +5098,18 @@ class Simulation:
         # self.combo = self.load_combos(combo_file)
         self.combo = chunks
         self.threads = []
+        # if self.n_threads > len(self.proxies):
+        #     logging.error(
+        #         f'The number of proxies in the proxy file ({len(self.proxies)}) is '
+        #         f'less than the number of threads ({self.n_threads}). Please add more '
+        #         f'proxies to the file.')
+        #     sys.exit(-1)
+        # if self.n_threads > len(self.combo):
+        #     logging.error(
+        #         f'The number of combos in the combo file ({len(self.combo)}) is '
+        #         f'less than the number of threads ({self.n_threads}). Please add more '
+        #         f'combos to the file.')
+        #     sys.exit(-1)
 
     @staticmethod
     def load_combos(combo_file):
@@ -3969,6 +5135,7 @@ class Simulation:
         failed = sum(1 for t in threads if t.failed)
         if running == 0:
             raise SystemExit
+        # logging.info(f'Threads: {len(threads)}\tRunning: {running}\tFailed: {failed}')
 
     def start(self):
         # Create threads but don't start them yet.
@@ -4001,9 +5168,18 @@ class Simulation:
             
             logging_timer += 130
             if logging_timer % STAT_LOGGING_INTERVAL == 0:
-                self.print_runtime_stats(self.threads)        
+                self.print_runtime_stats(self.threads)
+
+        # Clean-up
+        # logging.info('Shutting down the simulation...')
+        # for thread in threads:
+        #     thread.stop()
+        
 
     def restart_thread(self, old_thread):
+        """
+        Replaces the malfunctioning thread with a new copy with the same parameters.
+        """
         logging.info(f'Restarting thread {thread.thread_id}')
         
         old_thread_index = self.threads.find(thread)
@@ -4018,6 +5194,24 @@ class Simulation:
         self.threads[old_thread_index] = new_thread
         new_thread.start()
 
+########################################################################################################
+#def show_loading():
+#    loading_label.place(relx=0.5, rely=0.5, anchor="center")  # Place the label at the center
+#    animate_loading()
+
+# Function to hide the loading animation
+#def stop_loading():
+#    loading_label.place_forget()  # Remove the loading icon
+
+# Function to animate the loading icon (spinner effect)
+#def animate_loading():
+#    current_text = loading_label.cget("text")
+#    new_text = current_text[1:] + current_text[0]  # Rotate the text
+#    loading_label.configure(text=new_text)
+    
+#    if loading_label.winfo_ismapped():  # Keep updating if the label is visible
+#        root.after(200, animate_loading)  # Adjust timing for animation speed
+        
 def extract_day_names(datesdict):
     day_names = [day_tuple[0] for day_tuple in datesdict.values()]
     return day_names
@@ -4028,8 +5222,9 @@ def puxa_datas():
     datesdict = {}
     cookies = { "Time_Zone": "10" }
     soup = bs(requests.get('https://www.goaloo18.com/football/fixture', cookies=cookies).text, 'html.parser')
-    dates = soup.select('ul[class="timeBox"] li')
-    #dates = date_list.select('li')
+    date_list = soup.find('div', {'class': 'date-picker'})
+    date_list = date_list.find('ul', {'class': 'timeBox'})
+    dates = date_list.find_all('li')
     last_date = 0
     counter = 0
     for link in dates:
@@ -4038,6 +5233,12 @@ def puxa_datas():
         href = link.attrs['onclick'].split('"')[1]
         counter += 1
         datesdict[counter] = (date, href)
+    #for i in datesdict.items():
+    #    print(f'{i[0]} - {i[1][0]}')
+    #option = int(input('please choose day id from above: '))
+    #print("datesdict -> ", datesdict)
+    #print("option ->", option)
+    #print('dates->',dates )
     return(extract_day_names(datesdict))
 
 
@@ -4046,7 +5247,9 @@ def puxa_dias_com_links():
     datesdict = {}
     cookies = { "Time_Zone": "10" }
     soup = bs(requests.get('https://www.goaloo18.com/football/fixture', cookies=cookies).text, 'html.parser')
-    dates = soup.select('ul[class="timeBox"] li')
+    date_list = soup.find('div', {'class': 'date-picker'})
+    date_list = date_list.find('ul', {'class': 'timeBox'})
+    dates = date_list.find_all('li')
     last_date = 0
     counter = 0
     for link in dates:
@@ -4055,6 +5258,12 @@ def puxa_dias_com_links():
         href = link.attrs['onclick'].split('"')[1]
         counter += 1
         datesdict[counter] = (date, href)
+    #for i in datesdict.items():
+    #    print(f'{i[0]} - {i[1][0]}')
+    #option = int(input('please choose day id from above: '))
+    #print("datesdict -> ", datesdict)
+    #print("option ->", option)
+    #print('dates->',dates )
     return(datesdict)
 
 
@@ -4092,7 +5301,7 @@ def show_entries():
 
     leagues = False
     #league_input = input('Do you want to sort by league? (y/n): ')
-    if sort_by_league.lower() == 'yes':
+    if sort_by_league.lower() == 'sim':
         leagues = True
     proxies_file = {'leagues':leagues, 'proxies_file':proxies_file}
 
@@ -4114,6 +5323,8 @@ def show_entries():
 
     simulation.start()
 
+    #stop_loading()
+
 # Function to validate the input
 def validate_input(P):
     # Only allow numbers (no letters, symbols, etc.)
@@ -4125,23 +5336,8 @@ def validate_input(P):
 root = ctk.CTk()
 root.title("Configurações")
 # Set the width and height of the window
-width = 820
-height = 450
-
-# Define custom colors
-bg_color = "grey"
-text_color = "white"
-light_grey = "#D5D5D5"  # Light grey color
-hover_grey = "#C0C0C0"   # Slightly darker grey for hover
-#border_color = "#A9A9A9" # Darker grey for 3D effect
-dark_color = "#555555"  # Dark grey for the button background
-hover_color = "#111111"  # Lighter grey for hover effect
-border_color = "#1a1a1a"  # Almost black border to create a sharp contrast
-glow_color = "#1f9eff"  # A subtle glowing blue color for hover (optional)
-
-# Set the theme if needed
-ctk.set_appearance_mode("dark")  # This might change some colors automatically
-ctk.set_default_color_theme("dark-blue")  # Adjust theme as needed
+width = 1200
+height = 620
 
 # Get the screen width and height
 screen_width = root.winfo_screenwidth()
@@ -4154,106 +5350,72 @@ y_position = int((screen_height - height) / 2)
 # Set the geometry with the calculated position
 root.geometry(f"{width}x{height}+{x_position}+{y_position}")
 
-bg_image = ctk.CTkImage(dark_image=Image.open("bg4.jpg"), size=(820, 450))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Construct the full path to the image
+image_path = os.path.join(script_dir, "bg4.jpg")
+
+# Load the image with the specified size
+bg_image = ctk.CTkImage(dark_image=Image.open(image_path), size=(1200, 620))
 
 # Create a label to display the image as a background
 bg_label = ctk.CTkLabel(root, image=bg_image, text="")  # `text=""` to hide default text
 bg_label.place(x=0, y=0, relwidth=1, relheight=1)  # Cover entire window
 
 # Add spacing between widgets
-padding_y = 12
-padding_round = 20
+padding_y = 20
+padding_round = 40
 
 # Dropdown to choose the day
 days = puxa_datas()
-padx_value = 60
+padx_value = 80
 print(days)
 
-button_font = ctk.CTkFont(family="Helvetica", size=22)
-custom_font = ctk.CTkFont(family="Arial", size=14)
+button_font = ctk.CTkFont(family="Arial", size=24)
+custom_font = ctk.CTkFont(family="Arial", size=20)
 
-# Button with dark color theme, glowing hover, and rounded corners
-show_entries_button = ctk.CTkButton(
-    root,
-    text="Show Entries",
-    command=show_entries,
-    width=190,
-    height=40,
-    corner_radius=30,         # Rounded corners for a sleek look
-    fg_color=hover_color,      # Dark button background
-    hover_color=dark_color,  # Hover color, lighter grey
-    border_color=border_color,# Dark border color for contrast
-    border_width=3,           # Border width for a sharper effect
-    font=button_font,
-    cursor="hand2",            # Pointer cursor for better interactivity
-    text_color="white"
-)
-
-# Set 60px right margin with padx
-show_entries_button.pack(side="bottom", anchor="se", padx=(0, 60), pady=(30, 60))
+# Button with CTk format and custom styling
+show_entries_button = ctk.CTkButton(root, text="Mostrar Entradas", command=show_entries, 
+                                    width=190, height=40, corner_radius=8, fg_color="#FF5733", 
+                                    hover_color="#BBC655", font=custom_font)
+show_entries_button.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=(padding_round,100))
+# Dropdown to sort by league
+#sort_by_league_label = ctk.CTkLabel(root, text="Você quer classificar por liga?")
+#sort_by_league_label.pack(pady=padding_y)
 
 # CTkComboBox for sorting by league
-sort_by_league_var = ctk.StringVar(value="YES")
-sort_by_league_dropdown = ctk.CTkComboBox(
-    root,
-    values=["YES", "NO"],
-    variable=sort_by_league_var,
-    font=custom_font,
-    width=190,
-    height=30,  # Adjust height for a more rounded shape
-    corner_radius=20  # Apply corner radius for rounded appearance
-)
+sort_by_league_var = ctk.StringVar(value="Sim")
+sort_by_league_dropdown = ctk.CTkComboBox(root, values=["Sim", "Não"], variable=sort_by_league_var, font=custom_font, width=190)
 sort_by_league_dropdown.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=padding_y)
 
-# Create the CTkEntry widget with rounded corners
-end_time_entry = ctk.CTkEntry(
-    root,
-    placeholder_text="End time (HH:MM)",
-    font=custom_font,
-    width=190,  # Maintain the same width
-    height=30,  # Adjust the height to make it more rounded
-    corner_radius=20  # High corner radius to make it rounder (pill shape)
-)
-
-# Pack the entry widget into the window
+#end_time_label = ctk.CTkLabel(root, text="End time (HH:MM):")
+#end_time_label.pack(pady=padding_y)
+end_time_entry = ctk.CTkEntry(root, placeholder_text="End time (HH:MM)", font=custom_font, width=190)
 end_time_entry.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=padding_y)
 
-# Create the CTkEntry widget with rounded corners
-start_time_entry = ctk.CTkEntry(    
-    root,
-    placeholder_text="Start time (HH:MM)",
-    font=custom_font,
-    width=190,  # Maintain the same width
-    height=30,  # Adjust the height to make it more rounded
-    corner_radius=20  # High corner radius to make it rounder (pill shape)
-)
-
-# Pack the entry widget into the window
+# Inputs for start time and end time
+#start_time_label = ctk.CTkLabel(root, text="Start time (HH:MM):")
+#start_time_label.pack(pady=padding_y)
+start_time_entry = ctk.CTkEntry(root, placeholder_text="Start time (HH:MM)", font=custom_font, width=190)
 start_time_entry.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=padding_y)
 
+# Input to stop at a certain number of games
+#stop_games_label = ctk.CTkLabel(root, text="Você quer parar em determinado número de jogos?\nSe não quiser, basta deixar em branco:")
+#stop_games_label.pack(pady=padding_y)
+
 # CTkEntry for user input (replacing ttk.Entry)
-# Create the CTkEntry widget with rounded corners
-stop_games_entry = ctk.CTkEntry(
-    root,
-    placeholder_text="Number of Matches",
-    font=custom_font,
-    width=190,  # Maintain the same width
-    height=30,  # Adjust the height to make it more rounded
-    corner_radius=20  # High corner radius to make it rounder (pill shape)
-)
+vcmd = root.register(validate_input)
+stop_games_entry = ctk.CTkEntry(root, placeholder_text="número de jogos", font=custom_font, width=190, validate="key", validatecommand=(vcmd, "%P"))
 stop_games_entry.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=padding_y)
 
-days_var = ctk.StringVar(value=days[0])
-day_dropdown = ctk.CTkComboBox(
-    root,
-    values=days,
-    variable=days_var,
-    font=custom_font,
-    width=190,
-    height=30,  # Adjust height for a more rounded shape
-    corner_radius=20  # Apply corner radius for rounded appearance
-)
-day_dropdown.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=(15, padding_y))
+#day_label = ctk.CTkLabel(root, text="Escolha o dia:")
+#day_label.pack(pady=padding_y)
+# CTkComboBox for the dropdown (replacing ttk.Combobox)
+day_dropdown = ctk.CTkComboBox(root, values=days, font=custom_font, width=190)
+day_dropdown.pack(side="bottom", anchor="se", padx=(0, padx_value), pady=(100, padding_y))
+
+#loading_label = ctk.CTkLabel(root, text="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")  # You can replace this with a loading image
+#loading_label.place_forget()
 
 root.mainloop()
 

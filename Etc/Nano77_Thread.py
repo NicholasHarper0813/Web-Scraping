@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from openpyxl.styles import Border, Side
 import math
 import string
-import numpy as np 
+import numpy as np
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image
@@ -141,11 +141,10 @@ class SimulationThread(threading.Thread):
         options = Options()
         options.add_argument("start-maximized")
         options.add_argument("--headless")  # Use headless mode
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        options.add_experimental_option('useAutomationExtension', False)
         options.add_argument("--mute-audio")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+        options.add_experimental_option('useAutomationExtension', False)
         s = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=s, options=options)
 
@@ -170,9 +169,8 @@ class SimulationThread(threading.Thread):
         try:
             gameids = []
             lock.release()
-            website = "https:/www.goaloo18.com" + emails
-            m_url = 'https://www.goaloo18.com/football'
-            #print(f"\033[92m{website}\033[0m")
+            website = "https:/www.goaloo14.com" + emails
+            m_url = 'https://www.goaloo14.com/football'
             driver.get(website)
             driver.add_cookie({"name": "Time_Zone", "value": "10"})
             driver.add_cookie({"name": "FilterOptionFix", "value": "0"})
@@ -204,363 +202,259 @@ class SimulationThread(threading.Thread):
 
             if proxy == 0:
                 proxy = len(gameids)
-            print(f'trying to calculate data for {proxy} games')
-            working_count = 0
-            count = 0
-            cv_home = []
-            GC_home = []
-            cv_away = []
-            GC_away = []
-            t1_avg = []
-            t2_avg = []
-            last_matches1 = []
-            last_matches2 = []
-            bad_games = []
-            home_goals = []
-            cc = 0
-            try:
-                for gameid in gameids:
+
+            print(f'trying to calculate data for {proxy} games..')
+            working_count = count = cc = 0
+            cv_home = GC_home = cv_away = GC_away = t1_avg = t2_avg = last_matches1 = last_matches2 = bad_games = home_goals = []
+
+            def portlet_game(driver, table_v):
+                table_v_ = {'Team':'','Score':'','W/L':'','AVGH':'','AVGA':'','HGD':'','AGD':'','SD Home':'','SD Away':'','CV Home':'','CV Away':'',"AGH":''}
+                total_goals_t1 = 0
+                
+                goals_table = []
+                sqr_goals_table = []
+                valid_t1_matchs = []
+                SD = 0
+                home_goals = []
+
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "cb_sos1"))
+                )
+                button = driver.find_element(By.ID, "cb_sos1")
+                button.click()
+                time.sleep(1)
+                z = 5 #10
+                for y in range(1,z):
+                    td = table_v.find_element(By.ID,"tr1_"+str(y))
+                    if len(td.find_elements(By.TAG_NAME,"td")[3].text) == 0:
+                        z=z+1
+                    else:
+                        home_goals_txt = td.find_elements(By.TAG_NAME,"td")[3].text
+                        home_goals.append(home_goals_txt)
+                        #print('valeur: ', home_goals_txt)
+                home_goals = home_goals[0:5]     
+                adx = 0
+                for elmt in home_goals:
+                    adx += int(elmt[0:1])
+                
+                button.click()
+                AGH = 0
+                for x in range(1,6):
                     try:
-                        if count >= proxy:
-                            df = pd.DataFrame(data)
-                            df.to_excel(f'{date.strip()}.xlsx', index=False)
-                            driver.quit()
-                            input('press enter to exit')
-                            sys.exit()
-                        count+=1
-                        try:
-                            #print(f'Game Number -> {gameid}')
-                            driver.get(f'{m_url}/match/live-{gameid}')
+                        td = table_v.find_element(By.ID,"tr2_"+str(x))
+                        td_val = td.find_elements(By.TAG_NAME,"td")
+                        table_v2_val = table_v.find_element(By.TAG_NAME,"a").text
+                        if table_v2_val == td_val[2].text:
+                            table_v_['Team'] ='(H) ' + table_v2_val
+                            AGA += int(td_val[3].text[0])
                             
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, '//span[@class="sclassLink"]'))
-                            )
-                            league = driver.find_element(By.XPATH, '//span[@class="sclassLink"]').text
-                        except:
-                            continue
-
-                        home_team = driver.find_elements(By.XPATH, '//div[@class="sclassName"]')[0].text
-                        guest_team = driver.find_elements(By.XPATH, '//div[@class="sclassName"]')[1].text
-                        date, match_time, week_day = driver.find_element(By.XPATH, '//span[@class="time"]').text.split(' ')
-                        goals = []
-                        score = []
-                        
-                        def wait_for_element(driver, xpath, timeout=10):
-                            return WebDriverWait(driver, timeout).until(
-                                EC.presence_of_element_located((By.XPATH, xpath))
-                            ).text
-
-                        #print("analyzing")
-                        if 'Finished' in driver.find_element(By.XPATH, "//*[@id='mScore']").text:
-                            goal_A = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[1]').text
-                            goal_B = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[3]').text
-                            score.append(f"{goal_A} x {goal_B}")
-                            
-                            rows = driver.find_elements(By.XPATH, '//table[@class="team-table-other ky"]/tbody/tr')
-                            for row in rows:
-                                if row.find_elements(By.XPATH, './/img[@alt="Goal"]') or row.find_elements(By.XPATH, './/img[@alt="Penalty scored"]') or row.find_elements(By.XPATH, './/img[@alt="Own goal"]'):
-                                    goal_time = row.find_element(By.XPATH, './/td/b').text
-                                    goals.append(goal_time)
-								    
                         else:
-                            goal_A = "NA"
-                            goal_B = "NA" 
-
-                        goals.reverse()
+                            AGA += int(td_val[3].text[2:3])
+                            table_v_['Team'] = table_v2_val + ' (A)'
                         
-                        driver.get(f'{m_url}/match/over-under-odds-{gameid}')
+                        table_v_['Score'] = td_val[3].text
+                        table_v_['W/L'] = td_val[9].text
+                    except:
+                            table_v_['Team'] = 'No'
+                            table_v_['Score'] ='1-1(0-0)'
+                            table_v_['W/L'] = 'D'
+
+                    try:
+                            table_v2_score_value0 = int(table_v_['Score'][0])
+                            table_v2_score_value2 = int(table_v_['Score'][2])
+                    except:
+                            table_v2_score_value0 = 0
+                            table_v2_score_value2 = 0
+
+                    if x == 1 or x == 2:
+                        last_matches2.append([table_v2_score_value0, table_v2_score_value2])
+
+                    total_goals_t2 += table_v2_score_value0 + table_v2_score_value2
+                    goals_table2.append(table_v2_score_value0 + table_v2_score_value2)
+                    if x == 5 and len(goals_table2) == 5:
+                        
+                        table_v_['Goal Cost Away'] = str(float(data['Prob.Away']) / (total_goals_t2 / 5))
+                        xx = (total_goals_t2 / 5) * float(data['Prob.home'])
+                        t2_avg.append(total_goals_t2 / 5)
+                        table_v_['Goal Value A'] = str(xx)                                    
+
+                    if x == 5 and len(goals_table2) == 5 :
+                        table_v_['AGA'] = str(AGA/5) 
+                        table_v_["AVGA"] = str(total_goals_t2/5)
+                        
+                        op = 0.0
+                        for team_score_index in range(1,5):
+                            op = abs((goals_table2[team_score_index])-(total_goals_t2/5))
+                            op = math.sqrt(op)
+                            op = op / 5
+                            sqr_goals_table2.append(op)
+                                                                    
+                        sd = sum(sqr_goals_table2) /(total_goals_t2/5)
+                        GC_away.append(str(float(data['Prob.Away']) / (total_goals_t2 / 5)))
+                        cv_away.append(str(sd/(total_goals_t2/5)))
+                        table_v_["SD Away"] = str(sd)
+                        table_v_["CV Away"] = str(sd/(total_goals_t2/5))                             
+                    act_data.append(table_v_.copy())
+
+            def scrape_game(gameid):
+                try:
+                    driver.get(f'{m_url}/match/live-{gameid}')
+
+                    # Wait for critical elements
+                    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//span[@class="sclassLink"]')))
+                    league = driver.find_element(By.XPATH, '//span[@class="sclassLink"]').text
+                    team_val = driver.find_elements(By.XPATH, '//div[@class="sclassName"]')
+                    home_team = team_val[0].text
+                    guest_team = team_val[1].text
+                    date, match_time, week_day = driver.find_element(By.XPATH, '//span[@class="time"]').text.split(' ')
+
+                    goals = []
+                    score = []
+
+                    def wait_for_element(xpath, timeout=10):
+                        return WebDriverWait(driver, timeout).until(
+                            EC.presence_of_element_located((By.XPATH, xpath))
+                        ).text
+
+                    status_text = wait_for_element("//*[@id='mScore']")
+                    if 'Finished' in status_text:
+                        goal_A = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[1]').text
+                        goal_B = driver.find_element(By.XPATH, '//*[@id="mScore"]/div/div[3]').text
+                        score.append(f"{goal_A} x {goal_B}")
+                        rows = driver.find_elements(By.XPATH, '//table[@class="team-table-other ky"]/tbody/tr')
+                        for row in rows:
+                            if row.find_elements(By.XPATH, './/img[@alt="Goal"]') or \
+                                    row.find_elements(By.XPATH, './/img[@alt="Penalty scored"]') or \
+                                    row.find_elements(By.XPATH, './/img[@alt="Own goal"]'):
+                                goal_time = row.find_element(By.XPATH, './/td/b').text
+                                goals.append(goal_time)
+                    else:
+                        goal_A = "NA"
+                        goal_B = "NA"
+                    
+                    goals.reverse()
+
+                    driver.get(f'{m_url}/match/over-under-odds-{gameid}')
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1"))
+                    )
+
+                    companys = driver.find_elements(By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1")
+                    first_odds = 0
+                    odds_goals = 0
+                    for com in companys:
+                        company_name = com.find_element(By.CSS_SELECTOR, "td.rb").text
+                        if company_name == "Interwetten":
+                            odds_val_1 = com.find_elements(By.TAG_NAME, "td")
+                            first_odds = odds_val_1[1].text if len(odds_val_1) > 1 else 0
+                            odds_goals = odds_val_1[2].text if len(odds_val_1) > 2 else 0
+
+                    bet365_early_data_deep_copied = "0.0 / 0.0 / 0.0"
+                    bet365_live_data_deep_copied = "0.0 / 0.0 / 0.0"
+
+                    try:
+                        driver.get(f'{m_url}/{league}/live-{gameid}')
                         WebDriverWait(driver, 10).until(
-                            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1"))
+                            EC.presence_of_element_located((By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]'))
                         )
-
-                        companys = driver.find_elements(By.CSS_SELECTOR, "tr.tb-bgcolor, tr.tb-bgcolor1")
-                        first_odds = 0
-                        odds_goals = 0
-                        try:
-                            for com in companys:
-                                if "Interwetten" == com.find_element(By.CSS_SELECTOR,"td.rb").text:
-                                    first_odds = com.find_elements(By.TAG_NAME,"td")[1].text
-                                    odds_goals = com.find_elements(By.TAG_NAME,"td")[2].text
-                        except:
-                            pass
-						
-                        bet365_early_data_deep_copied = "0.0 / 0.0 / 0.0"
-                        bet365_live_data_deep_copied = "0.0 / 0.0 / 0.0"
-
-                        try:
-                            driver.get(f'{m_url}/{league}/live-{gameid}')
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]'))
-                            )
-                            
-                            early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
-                            new_values = early_live_str.split()
-                            bet365_early_data_deep_copied = " / ".join(new_values[1:4])
-                            bet365_live_data_deep_copied = " / ".join(new_values[4:7])
-                        except:
-                            pass
-                            
-                        working_count += 1
-
-                        date_deep_copied = str(date)
-                        match_time_deep_copied = match_time
-                        league_deep_copied = str(league)
-                        home_team_deep_copied = str(f'{home_team} VS {guest_team}')
-                        goal_A_deep_copied = str(f"{goal_A} x {goal_B}")
-                        first_odds_deep_copied = str(first_odds)
-                        odds_goals_deep_copied = str(odds_goals)
-                        numbers = bet365_early_data_deep_copied.split('/')
-                        
-                        if (float(numbers[0]) + float(numbers[1]) + float(numbers[2])) == 0:
-                            STAKE_POOL_1 = 0
-                            STAKE_POOL_2 = 0
-                        else:
-                            STAKE_POOL_1 = (float(numbers[0])/float(numbers[1])) / 2
-                            STAKE_POOL_2 = (float(numbers[2])/float(numbers[1])) + STAKE_POOL_1
-                        
-                        total_sum = sum(float(num) for num in numbers)
-                        result_ = total_sum / 3
-                        rounded_result = round(result_, 5)
-
-                        try:   
-                            response = requests.get(f'{m_url}/match/h2h-{gameid}')
-                        except:
-                            print('cant open URL')
-                        
-                        soup = BeautifulSoup(response.content, "html.parser")
-                        porletP6_element = soup.find(id="porletP6")
-                        
-                        x  = porletP6_element.find(id="table_v1")
-                        y  = porletP6_element.find(id="table_v2")
-                        rows_in_table_v2 = x.find_all("tr")
-                        rows_in_table_v1 = y.find_all("tr")
-                        good_data = True
-                        if len(rows_in_table_v1) !=25 or len(rows_in_table_v2) != 25:
-                            good_data = False
-                            bad_games.append(gameid)
-
-                        home = home_team_deep_copied.split("VS")[0]
-                        away = home_team_deep_copied.split("VS")[1]
-                        GH = goal_A_deep_copied.split("x")[0]
-                        GA = goal_A_deep_copied.split("x")[1]
-                        if  good_data == True  and first_odds_deep_copied != "-" :
-                            cc += 1
-                            print(f'Now on GAME ({gameid}): ', cc, home, away)
-                            data['Time'] = match_time_deep_copied
-                            data['Date'] = date_deep_copied
-                            data['League'] =league_deep_copied
-                            data['Home'] = home
-                            data['Away'] = away
-                            data['GH'] = GH
-                            data['GA'] = GA
-                            data['Over'] = first_odds_deep_copied
-                            data['STAKE POOL'] = ( STAKE_POOL_2 + rounded_result) * 1.75
-                            data['Early'] = bet365_early_data_deep_copied
-                            data['SUM'] = rounded_result
-                            data['Live'] = bet365_live_data_deep_copied
-                         
-                            values = data['Early'].split('/')
-                            value1 = float(values[0].strip())
-                            value2 = float(values[1].strip())
-                            value3 = float(values[2].strip())
-                            if (value1 + value2 + value3) == 0:
-                                data['Prob.home'] = 0
-                                data['Prob.Away'] = 0
-                            else:
-                                data['Prob.home'] = str(1/value1)
-                                data['Prob.Away'] = str(1/value3)
-
-                            for team_score_index in range(1, max_goals):
-                                try:
-                                    gol = copy.deepcopy(goals[team_score_index-1])
-                                    data[f'goal{team_score_index}'] = gol
-                                except IndexError:
-                                    data[f'goal{team_score_index}'] = 'NA'
-             
-                            act_data.append(data.copy())
-
-                            driver.get(f'{m_url}/match/h2h-{gameid}#porletP6')
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "porletP6"))
-                            )
-                            porletP5 = driver.find_element(By.ID,"porletP6")
-                            table_v1 = porletP5.find_element(By.ID,"table_v1")
-                            table_v1_ = {'Team':'','Score':'','W/L':'','AVGH':'','AVGA':'','HGD':'','AGD':'','SD Home':'','SD Away':'','CV Home':'','CV Away':'',"AGH":''}
-                            total_goals_t1 = 0
-                            
-                            goals_table = []
-                            sqr_goals_table = []
-                            valid_t1_matchs = []
-                            SD = 0
-                            home_goals = []
-
-                            WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.ID, "cb_sos1"))
-                            )
-                            button = driver.find_element(By.ID, "cb_sos1")
-                            button.click()
-                            time.sleep(1)
-                            z =10
-                            for y in range(1,z):
-                                td = table_v1.find_element(By.ID,"tr1_"+str(y))
-                                if len(td.find_elements(By.TAG_NAME,"td")[3].text) == 0:
-                                    z=z+1
-                                else:
-                                    home_goals.append(td.find_elements(By.TAG_NAME,"td")[3].text)
-                                    #print('valeur: ',td.find_elements(By.TAG_NAME,"td")[3].text,y )
-                            home_goals = home_goals[0:5]     
-                            adx = 0
-                            for elmt in home_goals:
-                                adx += int(elmt[0:1])
-                            
-                            button.click()
-                            AGH = 0
-                            for x in range(1,6):
-                                try:
-                                    try:
-                                        td = table_v1.find_element(By.ID,"tr1_"+str(x))
-                                        if table_v1.find_element(By.TAG_NAME,"a").text  == td.find_elements(By.TAG_NAME,"td")[2].text:
-                                            table_v1_['Team'] ='(H) ' + table_v1.find_element(By.TAG_NAME,"a").text
-                                            AGH += int(td.find_elements(By.TAG_NAME,"td")[3].text[0])
-                                        else:
-                                            table_v1_['Team'] = table_v1.find_element(By.TAG_NAME,"a").text + ' (A)'
-                                            AGH += int(td.find_elements(By.TAG_NAME,"td")[3].text[2:3])
-                                        table_v1_['Score'] =  td.find_elements(By.TAG_NAME,"td")[3].text
-                                        table_v1_['W/L'] = td.find_elements(By.TAG_NAME,"td")[9].text
-                                    except:
-                                        table_v1_['Team'] = "No"
-                                        table_v1_['Score'] = '1-1(0-0)'
-                                        table_v1_['W/L'] = 'D'
-
-                                    try:
-                                        table_v1_score_value0 = int(table_v1_['Score'][0])
-                                        table_v1_score_value2 = int(table_v1_['Score'][2])
-                                    except:
-                                        table_v1_score_value0 = 0
-                                        table_v1_score_value2 = 0
-
-                                    if x == 1 or x == 2:
-                                        last_matches1.append([table_v1_score_value0, table_v1_score_value2])
-
-                                    total_goals_t1 += table_v1_score_value0 + table_v1_score_value2
-                                    goals_table.append(table_v1_score_value0 + table_v1_score_value2)
-                                    
-                                    if x == 5 and len(goals_table) == 5:
-                                        table_v1_['AGH'] = str(AGH/5) 
-                                        t1_avg.append(total_goals_t1 /5)
-                                        xx = (total_goals_t1 / 5) * float(data['Prob.Away'])
-                                        table_v1_['Goal Cost Home'] = str(float(data['Prob.home']) / (total_goals_t1 / 5))
-                                        table_v1_['Goal Value H'] = str(xx)
-                                    if x == 5 and len(goals_table) == 5:
-                                        table_v1_["AVGH"] = str(total_goals_t1/5)
-                                        
-                                        op = 0.0
-                                        for team_score_index in range(1,5):
-                                            op = abs((goals_table[team_score_index])-(total_goals_t1/5))
-                                            op = math.sqrt(op)
-                                            op = op / 5
-                                            sqr_goals_table.append(op)
-                                        
-                                        sd = sum(sqr_goals_table) /(total_goals_t1/5)
-                                        GC_home.append(str(float(data['Prob.home']) / (total_goals_t1 / 5)))
-                                        cv_home.append(str(sd/(total_goals_t1/5)))
-                                        table_v1_["SD Home"] = str(sd)
-                                        table_v1_["CV Home"] = str(sd/(total_goals_t1/5))
-                                    
-                                    act_data.append(table_v1_.copy())
-                                except Exception as e:
-                                    pass
-                            
-                            table_v2 = porletP5.find_element(By.ID,"table_v2")
-                            table_v2_ = {'Team':'','Score':'','W/L':'','AVGH':'','AVGA':'','HGD':'','AGD':'','SD Home':'','SD Away':'','CV Home':'','CV Away':'','AGA':''}
-                            total_goals_t2 = 0
-                            goals_table2 = []
-                            SD = 0
-                            sqr_goals_table2 = []
-                            home_goals = []
-                            button = driver.find_element(By.ID, "cb_sos2")
-                            button.click()
-                            z =10
-                            for y in range(1,z):
-                                td = table_v2.find_element(By.ID,"tr2_"+str(y))
-                                if len(td.find_elements(By.TAG_NAME,"td")[3].text) == 0:
-                                    z=z+1
-                                else:
-                                    home_goals.append(td.find_elements(By.TAG_NAME,"td")[3].text)
-
-                            home_goals = home_goals[0:5]     
-                            adx = 0
-                            for elmt in home_goals:
-                                adx += int(elmt[2:3])
-
-                            button.click()
-                            time.sleep(1)
-                            AGA = 0
-                            for x in range(1,6):
-                                try:
-                                    try:
-                                        td = table_v2.find_element(By.ID,"tr2_"+str(x))
-                                        if table_v2.find_element(By.TAG_NAME,"a").text  == td.find_elements(By.TAG_NAME,"td")[2].text:
-                                            table_v2_['Team'] ='(H) ' + table_v2.find_element(By.TAG_NAME,"a").text
-                                            AGA += int(td.find_elements(By.TAG_NAME,"td")[3].text[0])
-                                            
-                                        else:
-                                            AGA += int(td.find_elements(By.TAG_NAME,"td")[3].text[2:3])
-                                            table_v2_['Team'] = table_v2.find_element(By.TAG_NAME,"a").text  + ' (A)'
-                                        
-                                        table_v2_['Score'] =  td.find_elements(By.TAG_NAME,"td")[3].text
-                                        table_v2_['W/L'] = td.find_elements(By.TAG_NAME,"td")[9].text
-                                    except:
-                                         table_v2_['Team'] = 'No'
-                                         table_v2_['Score'] ='1-1(0-0)'
-                                         table_v2_['W/L'] = 'D'
-
-                                    try:
-                                         table_v2_score_value0 = int(table_v2_['Score'][0])
-                                         table_v2_score_value2 = int(table_v2_['Score'][2])
-                                    except:
-                                         table_v2_score_value0 = 0
-                                         table_v2_score_value2 = 0
-
-                                    if x == 1 or x == 2:
-                                        last_matches2.append([table_v2_score_value0, table_v2_score_value2])
-
-                                    total_goals_t2 += table_v2_score_value0 + table_v2_score_value2
-                                    goals_table2.append(table_v2_score_value0 + table_v2_score_value2)
-                                    if x == 5 and len(goals_table2) == 5:
-                                        
-                                        table_v2_['Goal Cost Away'] = str(float(data['Prob.Away']) / (total_goals_t2 / 5))
-                                        xx = (total_goals_t2 / 5) * float(data['Prob.home'])
-                                        t2_avg.append(total_goals_t2 / 5)
-                                        table_v2_['Goal Value A'] = str(xx)                                    
-
-                                    if x == 5 and len(goals_table2) == 5 :
-                                        table_v2_['AGA'] = str(AGA/5) 
-                                        table_v2_["AVGA"] = str(total_goals_t2/5)
-                                        
-                                        op = 0.0
-                                        for team_score_index in range(1,5):
-                                            op = abs((goals_table2[team_score_index])-(total_goals_t2/5))
-                                            op = math.sqrt(op)
-                                            op = op / 5
-                                            sqr_goals_table2.append(op)
-                                                                                    
-                                        sd = sum(sqr_goals_table2) /(total_goals_t2/5)
-                                        GC_away.append(str(float(data['Prob.Away']) / (total_goals_t2 / 5)))
-                                        cv_away.append(str(sd/(total_goals_t2/5)))
-                                        table_v2_["SD Away"] = str(sd)
-                                        table_v2_["CV Away"] = str(sd/(total_goals_t2/5))                             
-                                    act_data.append(table_v2_.copy())
-                                except Exception as e:
-                                    pass
-                            
-                            last_mathces = []
-                            for team_score_index in range(0,len(last_matches1),2):
-                                last_mathces.append([last_matches1[team_score_index],last_matches1[team_score_index+1]])     
-                    except Exception as e:
+                        early_live_str = driver.find_element(By.XPATH, '//*[@id="oddsDiv_8"]/table/tbody/tr[4]').text
+                        new_values = early_live_str.split()
+                        bet365_early_data_deep_copied = " / ".join(new_values[1:4])
+                        bet365_live_data_deep_copied = " / ".join(new_values[4:7])
+                    except:
                         pass
-            except Exception as e:
-                pass
+
+                    date_deep_copied = str(date)
+                    match_time_deep_copied = match_time
+                    league_deep_copied = str(league)
+                    home_team_deep_copied = str(f'{home_team} VS {guest_team}')
+                    goal_A_deep_copied = str(f"{goal_A} x {goal_B}")
+                    first_odds_deep_copied = str(first_odds)
+                    odds_goals_deep_copied = str(odds_goals)
+                    numbers = bet365_early_data_deep_copied.split('/')
+
+                    if (float(numbers[0]) + float(numbers[1]) + float(numbers[2])) == 0:
+                        STAKE_POOL_1 = 0
+                        STAKE_POOL_2 = 0
+                    else:
+                        STAKE_POOL_1 = (float(numbers[0])/float(numbers[1])) / 2
+                        STAKE_POOL_2 = (float(numbers[2])/float(numbers[1])) + STAKE_POOL_1
+
+                    total_sum = sum(float(num) for num in numbers)
+                    result_ = total_sum / 3
+                    rounded_result = round(result_, 5)
+
+                    response = requests.get(f'{m_url}/match/h2h-{gameid}')
+                    soup = BeautifulSoup(response.content, "lxml")
+                    porletP6_element = soup.find(id="porletP6")
+                    x = porletP6_element.find(id="table_v1")
+                    y = porletP6_element.find(id="table_v2")
+
+                    # Accumulate data
+                    home = home_team_deep_copied.split("VS")[0]
+                    away = home_team_deep_copied.split("VS")[1]
+                    GH = goal_A_deep_copied.split("x")[0]
+                    GA = goal_A_deep_copied.split("x")[1]
+
+                    if first_odds_deep_copied != "-":
+                        data['Time'] = match_time_deep_copied
+                        data['Date'] = date_deep_copied
+                        data['League'] = league_deep_copied
+                        data['Home'] = home
+                        data['Away'] = away
+                        data['GH'] = GH
+                        data['GA'] = GA
+                        data['Over'] = first_odds_deep_copied
+                        data['STAKE POOL'] = (STAKE_POOL_2 + rounded_result) * 1.75
+                        data['Early'] = bet365_early_data_deep_copied
+                        data['SUM'] = rounded_result
+                        data['Live'] = bet365_live_data_deep_copied
+
+                        values = data['Early'].split('/')
+                        value1 = float(values[0].strip())
+                        value2 = float(values[1].strip())
+                        value3 = float(values[2].strip())
+                        if (value1 + value2 + value3) == 0:
+                            data['Prob.home'] = 0
+                            data['Prob.Away'] = 0
+                        else:
+                            data['Prob.home'] = str(1/value1)
+                            data['Prob.Away'] = str(1/value3)
+
+                        for team_score_index in range(1, max_goals):
+                            try:
+                                gol = copy.deepcopy(goals[team_score_index-1])
+                                data[f'goal{team_score_index}'] = gol
+                            except IndexError:
+                                data[f'goal{team_score_index}'] = 'NA'
+
+                        act_data.append(data.copy())
+
+                        driver.get(f'{m_url}/match/h2h-{gameid}#porletP6')
+
+                        WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.ID, "porletP6"))
+                        )
+                        porletP5 = driver.find_element(By.ID,"porletP6")
+
+                        table_v_s = porletP5.find_element(By.ID,"table_v1, table_v2")
+
+                        with ThreadPoolExecutor(max_workers=3) as executor:
+                            executor.map(portlet_game, table_v_s)
+                        
+                        last_mathces = []
+                        for team_score_index in range(0,len(last_matches1),2):
+                            last_mathces.append([last_matches1[team_score_index],last_matches1[team_score_index+1]])     
+                except Exception as e:
+                    pass
+
+            def scrape_games_concurrently(gameids):
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    executor.map(scrape_game, gameids)
+
+            # Start scraping
+            scrape_games_concurrently(gameids)
+
             try:
                 df = pd.DataFrame(act_data)
             
@@ -1134,7 +1028,7 @@ class SimulationThread(threading.Thread):
                                 resA.append(False)
                                 
                         return resH, resA
-                    font
+                    
                     resH, resA = new_task1(home,away)
                     i = -1
                     try:
@@ -1201,7 +1095,7 @@ class SimulationThread(threading.Thread):
                                 resA.append(False)
 
                         return resH, resA
-                    font
+
                     resH, resA = new_task_update_1(home,away)
 
                     i = -1
@@ -1436,7 +1330,7 @@ class SimulationThread(threading.Thread):
                                 resA.append(False)
 
                         return resH, resA
-                    font
+
                     resH, resA = new_task_update_5(home,away)
 
                     i = -1
@@ -2225,7 +2119,6 @@ class SimulationThread(threading.Thread):
                     def check_data(t):
                         home_score_check = ["2-1", "2-2", "3-1", "3-2", "3-3", "4-0", "4-1", "4-2", "4-3", "5-0", "5-1", "5-2", "5-3", "5-4"]
                         away_score_check = ["1-2", "2-2", "1-3", "2-3", "3-3", "0-4", "1-4", "2-4", "3-4", "0-5", "1-5", "2-5", "3-5", "4-5"]
-
 
                         home =[row[0:5] for row in t]
                         away =[row[5:] for row in t]
@@ -4027,7 +3920,7 @@ def puxa_datas():
     league = False
     datesdict = {}
     cookies = { "Time_Zone": "10" }
-    soup = bs(requests.get('https://www.goaloo18.com/football/fixture', cookies=cookies).text, 'html.parser')
+    soup = bs(requests.get('https://www.goaloo14.com/football/fixture', cookies=cookies).text, 'html.parser')
     dates = soup.select('ul[class="timeBox"] li')
     #dates = date_list.select('li')
     last_date = 0
@@ -4045,7 +3938,7 @@ def puxa_dias_com_links():
     league = False
     datesdict = {}
     cookies = { "Time_Zone": "10" }
-    soup = bs(requests.get('https://www.goaloo18.com/football/fixture', cookies=cookies).text, 'html.parser')
+    soup = bs(requests.get('https://www.goaloo14.com/football/fixture', cookies=cookies).text, 'html.parser')
     dates = soup.select('ul[class="timeBox"] li')
     last_date = 0
     counter = 0
