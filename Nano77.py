@@ -282,7 +282,7 @@ class SimulationThread(threading.Thread):
                                     first_odds = com.find_elements(By.TAG_NAME,"td")[1].text
                                     odds_goals = com.find_elements(By.TAG_NAME,"td")[2].text
                         except:
-                            pass
+                            continue
 						
                         bet365_early_data_deep_copied = "0.0 / 0.0 / 0.0"
                         bet365_live_data_deep_copied = "0.0 / 0.0 / 0.0"
@@ -298,7 +298,7 @@ class SimulationThread(threading.Thread):
                             bet365_early_data_deep_copied = " / ".join(new_values[1:4])
                             bet365_live_data_deep_copied = " / ".join(new_values[4:7])
                         except:
-                            pass
+                            continue
                             
                         working_count += 1
 
@@ -2143,16 +2143,18 @@ class SimulationThread(threading.Thread):
                     except:
                         pass
 
-                    i = -1
-                    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
-                        for cell in row:
-                            if cell.value is not None and  cell.value != 'AVGH' and cell.value !='' and isinstance(cell.value,str) :
-                                i += 1
-                                if BKres[i] == True:
-                                    cell.border = color9
-                                if BKres2[i] == True:
-                                    cell.border = color10
-                    
+                    try:
+                        i = -1
+                        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=8, max_col=8):
+                            for cell in row:
+                                if cell.value is not None and  cell.value != 'AVGH' and cell.value !='' and isinstance(cell.value,str) :
+                                    i += 1
+                                    if BKres[i] == True:
+                                        cell.border = color9
+                                    if BKres2[i] == True:
+                                        cell.border = color10
+                    except:
+                        pass
                     ################################################ 3NR  NEED TO BE FIXED Prob is missing ####################################
                     def Three_NR(home,away):
                         resH = []
